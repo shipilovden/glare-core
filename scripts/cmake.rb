@@ -100,7 +100,9 @@ class CMakeBuild
 		end
 
 		Dir.chdir(@build_dir) do
-			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{cmake_args}")
+			# Add CMAKE_POLICY_VERSION_MINIMUM for CMake 4.x compatibility
+			policy_flag = " -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args}#{policy_flag} #{cmake_args}")
 		end
 	end
 	

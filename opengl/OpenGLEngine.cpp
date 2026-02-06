@@ -1986,6 +1986,29 @@ void OpenGLEngine::initialise(const std::string& data_dir_, Reference<TextureSer
 			dummy_black_tex_map->getPixel(0, 0)[0] = 0;
 			this->dummy_black_tex = getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__dummy_black_tex__"), *dummy_black_tex_map);
 		}
+		
+		// Create a fallback "missing texture" (magenta/black checker) for when a texture file is not present.
+		{
+			ImageMapUInt8Ref missing_tex_map = new ImageMapUInt8(2, 2, 3);
+			// (0,0) magenta, (1,0) black, (0,1) black, (1,1) magenta
+			auto setPix = [&](int x, int y, uint8 r, uint8 g, uint8 b)
+			{
+				uint8* p = missing_tex_map->getPixel(x, y);
+				p[0] = r; p[1] = g; p[2] = b;
+			};
+			setPix(0, 0, 255,   0, 255);
+			setPix(1, 0,   0,   0,   0);
+			setPix(0, 1,   0,   0,   0);
+			setPix(1, 1, 255,   0, 255);
+			
+			TextureParams params;
+			params.filtering = OpenGLTexture::Filtering_Nearest;
+			params.wrapping = OpenGLTexture::Wrapping_Clamp;
+			params.allow_compression = false;
+			params.use_mipmaps = false;
+			params.use_sRGB = true;
+			this->missing_tex = getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__missing_tex__"), *missing_tex_map, params);
+		}
 
 
 		const bool is_intel_vendor = openglDriverVendorIsIntel();
@@ -4966,6 +4989,31 @@ Reference<OpenGLTexture> OpenGLEngine::getTexture(const std::string& tex_path, c
 {
 	try
 	{
+		// If the texture file is missing on disk, return a fallback texture instead of attempting to decode.
+		// Some decoders/paths can fail hard when given a non-existent file path.
+		if(!FileUtils::fileExists(tex_path))
+		{
+			// missing_tex is created during OpenGLEngine init, but be defensive.
+			if(missing_tex.nonNull())
+				return missing_tex;
+			else
+			{
+				ImageMapUInt8Ref missing_tex_map = new ImageMapUInt8(2, 2, 3);
+				uint8* p0 = missing_tex_map->getPixel(0, 0); p0[0] = 255; p0[1] = 0; p0[2] = 255;
+				uint8* p1 = missing_tex_map->getPixel(1, 0); p1[0] = 0;   p1[1] = 0; p1[2] = 0;
+				uint8* p2 = missing_tex_map->getPixel(0, 1); p2[0] = 0;   p2[1] = 0; p2[2] = 0;
+				uint8* p3 = missing_tex_map->getPixel(1, 1); p3[0] = 255; p3[1] = 0; p3[2] = 255;
+
+				TextureParams missing_params;
+				missing_params.filtering = OpenGLTexture::Filtering_Nearest;
+				missing_params.wrapping = OpenGLTexture::Wrapping_Clamp;
+				missing_params.allow_compression = false;
+				missing_params.use_mipmaps = false;
+				missing_params.use_sRGB = true;
+				return this->getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__missing_tex__"), *missing_tex_map, missing_params);
+			}
+		}
+
 		const std::string tex_key = this->texture_server.nonNull() ? this->texture_server->keyForPath(tex_path) : tex_path;
 
 		const OpenGLTextureKey texture_key(tex_key);
