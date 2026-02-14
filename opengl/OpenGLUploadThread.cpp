@@ -32,13 +32,12 @@ void OpenGLUploadThread::doRun()
 	int next_pbo_index = 0;
 	int next_vbo_index = 0;
 
-	// NOTE: biggest geometry seen in Substrata is Green_Lawn_obj_6978297763328388609_opt3.bmesh, 103 MB.
-	// Biggest texture data seen is ~25 MB.
+	// NOTE: some scenes/models (e.g. College_glb) can require very large temporary upload buffers.
 
 	std::vector<PBORef> pbos(1);
 	for(size_t i=0; i<pbos.size(); ++i)
 	{
-		pbos[i] = new PBO(64 * 1024 * 1024, /*for upload=*/true, /*create_persistently_mapped_buffer=*/true);
+		pbos[i] = new PBO(256 * 1024 * 1024, /*for upload=*/true, /*create_persistently_mapped_buffer=*/true);
 		pbos[i]->map();
 	}
 
@@ -46,7 +45,7 @@ void OpenGLUploadThread::doRun()
 	std::vector<VBORef> vbos(1);
 	for(size_t i=0; i<vbos.size(); ++i)
 	{
-		vbos[i] = new VBO(NULL, 128 * 1024 * 1024, GL_ARRAY_BUFFER, /*usage (not used)=*/GL_STREAM_DRAW, /*create_persistently_mapped_buffer=*/true);
+		vbos[i] = new VBO(NULL, 256 * 1024 * 1024, GL_ARRAY_BUFFER, /*usage (not used)=*/GL_STREAM_DRAW, /*create_persistently_mapped_buffer=*/true);
 		vbos[i]->map();
 	}
 

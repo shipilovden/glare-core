@@ -100,6 +100,13 @@ PBOPool::PBOPool()
 		pbo_infos.push_back(info);
 	}
 
+	for(int i=0; i<1; ++i)
+	{
+		PBOInfo info;
+		info.pbo = new PBO(256 * 1024 * 1024, /*for upload=*/true, create_persistently_mapped_buffer);
+		pbo_infos.push_back(info);
+	}
+
 	size_t prev_PBO_size = std::numeric_limits<size_t>::max();
 	size_t total_size = 0;
 	for(size_t i=0; i<pbo_infos.size(); ++i)

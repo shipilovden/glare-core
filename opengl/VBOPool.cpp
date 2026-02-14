@@ -42,8 +42,7 @@ VBOPool::VBOPool(GLenum buffer_type)
 		vbo_infos.push_back(info);
 	}
 
-	// Larger buffers so large meshes can be uploaded asynchronously.
-	// These sizes were increased in Metasiberia to avoid "missing model" issues for very large objects.
+	// Larger buffers so large meshes can be uploaded asynchronously (e.g. College_glb).
 	for(int i=0; i<1; ++i)
 	{
 		VBOInfo info;
@@ -54,8 +53,14 @@ VBOPool::VBOPool(GLenum buffer_type)
 	for(int i=0; i<1; ++i)
 	{
 		VBOInfo info;
-		// ~160 MB (matches historical tuning in this project, avoids excessive VRAM use).
-		info.vbo = new VBO(nullptr, 160 * 1024 * 1024, buffer_type, usage, create_persistently_mapped_buffer);
+		info.vbo = new VBO(nullptr, 128 * 1024 * 1024, buffer_type, usage, create_persistently_mapped_buffer);
+		vbo_infos.push_back(info);
+	}
+
+	for(int i=0; i<1; ++i)
+	{
+		VBOInfo info;
+		info.vbo = new VBO(nullptr, 256 * 1024 * 1024, buffer_type, usage, create_persistently_mapped_buffer);
 		vbo_infos.push_back(info);
 	}
 
