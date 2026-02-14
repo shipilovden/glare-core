@@ -538,6 +538,12 @@ HTTPClient::ResponseInfo HTTPClient::doDownloadFile(const std::string& url, int 
 	request += "Host: ";
 	request += url_components.host;
 	request += "\r\n";
+	if(!user_agent.empty())
+	{
+		request += "User-Agent: ";
+		request += user_agent;
+		request += "\r\n";
+	}
 	for(size_t i=0; i<additional_headers.size(); ++i)
 	{
 		request += additional_headers[i];
