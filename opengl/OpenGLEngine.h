@@ -1200,6 +1200,7 @@ public:
 
 	void shaderFileChanged(); // Called by ShaderFileWatcherThread, from another thread.
 private:
+	static void staticInit();
 	void checkCreateProfilingQueries();
 	void loadMapsForSunDir();
 	void buildObjectData(const Reference<GLObject>& object);
@@ -1309,6 +1310,7 @@ private:
 	void bindStandardShadowMappingDepthTextures();
 	static size_t getTotalGPUMemAllocated();
 
+	static bool static_init_done;
 	bool init_succeeded;
 	std::string initialisation_error_msg;
 	
@@ -1372,8 +1374,6 @@ private:
 	Reference<OpenGLTexture> cirrus_tex; // May be NULL, set by setCirrusTexture().
 	Reference<OpenGLTexture> aurora_tex;
 	Reference<OpenGLTexture> dummy_black_tex;
-	// Fallback texture returned when a requested texture file is missing on disk.
-	Reference<OpenGLTexture> missing_tex;
 	Reference<OpenGLTexture> cosine_env_tex;
 	Reference<OpenGLTexture> specular_env_tex;
 	//Reference<OpenGLTexture> snow_ice_normal_map;

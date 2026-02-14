@@ -1,7 +1,7 @@
 /*=====================================================================
-GLUIButton.h
-------------
-Copyright Glare Technologies Limited 2021 -
+GLUICheckBox.h
+--------------
+Copyright Glare Technologies Limited 2026 -
 =====================================================================*/
 #pragma once
 
@@ -19,11 +19,11 @@ class GLUI;
 
 
 /*=====================================================================
-GLUIButton
-----------
+GLUICheckBox
+------------
 
 =====================================================================*/
-class GLUIButton : public GLUIWidget
+class GLUICheckBox : public GLUIWidget
 {
 public:
 	struct CreateArgs
@@ -32,24 +32,20 @@ public:
 
 		std::string tooltip;
 
-		// For toggleable buttons:
-		Colour3f toggled_colour;
-		Colour3f untoggled_colour;
-
-		Colour3f mouseover_toggled_colour;
-		Colour3f mouseover_untoggled_colour;
-
-		// For non-toggleable buttons:
-		Colour3f button_colour;
-		Colour3f mouseover_button_colour;
+		Colour3f tick_colour;
+		Colour3f box_colour;
+		Colour3f mouseover_box_colour;
 
 		Colour3f pressed_colour;
+
+		bool checked; // Initially checked?  False by default.
 	};
 
-	GLUIButton(GLUI& glui, Reference<OpenGLEngine>& opengl_engine, const std::string& tex_path, const Vec2f& botleft, const Vec2f& dims, const CreateArgs& args);
-	~GLUIButton();
+	GLUICheckBox(GLUI& glui, Reference<OpenGLEngine>& opengl_engine, const std::string& tick_texture_path, const Vec2f& botleft, const Vec2f& dims, const CreateArgs& args);
+	~GLUICheckBox();
 
 	virtual void handleMousePress(MouseEvent& event) override;
+	virtual void handleMouseDoubleClick(MouseEvent& event) override;
 	virtual void handleMouseRelease(MouseEvent& event) override;
 	virtual void doHandleMouseMoved(MouseEvent& event) override;
 
@@ -58,29 +54,31 @@ public:
 
 	virtual void setClipRegion(const Rect2f& clip_rect) override;
 
-	void setToggled(bool toggled_);
+	void setChecked(bool checked_);
+	bool isChecked() const { return checked; }
 
 	virtual void setVisible(bool visible) override;
 	virtual bool isVisible() override;
 
 	GLUICallbackHandler* handler;
 
-	bool toggleable;
-	bool toggled;
+	bool checked;
 	bool pressed;
 	bool immutable_dims; // If true, don't change dimensions in setPosAndDims (which is called by GridContainer layout)
 
 private:
-	GLARE_DISABLE_COPY(GLUIButton);
+	GLARE_DISABLE_COPY(GLUICheckBox);
 
-	void updateButtonColour(const Vec2f mouse_ui_coords);
+	void updateColour(const Vec2f mouse_ui_coords);
+	void updateTransforms();
 
 	GLUI* glui;
 	Reference<OpenGLEngine> opengl_engine;
-	OverlayObjectRef overlay_ob;
+	OverlayObjectRef tick_overlay_ob;
+	OverlayObjectRef box_overlay_ob;
 
 	CreateArgs args;
 };
 
 
-typedef Reference<GLUIButton> GLUIButtonRef;
+typedef Reference<GLUICheckBox> GLUICheckBoxRef;

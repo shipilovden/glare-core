@@ -490,8 +490,6 @@ OpenGLEngine::OpenGLEngine(const OpenGLEngineSettings& settings_)
 	num_draw_commands(0),
 	reload_shaders_callback(nullptr)
 {
-	OpenGLExtensions::init();
-
 	current_index_type = 0;
 	current_bound_prog = NULL;
 	current_bound_prog_index = std::numeric_limits<uint32>::max();
@@ -1683,6 +1681,28 @@ struct DataUpdateStruct
 };
 
 
+bool OpenGLEngine::static_init_done = false;
+
+
+void OpenGLEngine::staticInit()
+{
+	if(static_init_done)
+		return;
+
+#if !defined(OSX) && !defined(EMSCRIPTEN)
+	if(gl3wInit() != 0)
+	{
+		conPrint("gl3wInit failed.");
+		return;
+	}
+#endif
+
+	OpenGLExtensions::init();
+
+	static_init_done = true;
+}
+
+
 void OpenGLEngine::initialise(const std::string& data_dir_, Reference<TextureServer> texture_server_, PrintOutput* print_output_, glare::TaskManager* main_task_manager_, glare::TaskManager* high_priority_task_manager_,
 	Reference<glare::Allocator> mem_allocator_)
 {
@@ -1695,15 +1715,8 @@ void OpenGLEngine::initialise(const std::string& data_dir_, Reference<TextureSer
 	high_priority_task_manager = high_priority_task_manager_;
 	mem_allocator = mem_allocator_;
 
-#if !defined(OSX) && !defined(EMSCRIPTEN)
-	if(gl3wInit() != 0)
-	{
-		conPrint("gl3wInit failed.");
-		init_succeeded = false;
-		initialisation_error_msg = "gl3wInit failed.";
-		return;
-	}
-#endif
+	if(!static_init_done)
+		staticInit();
 
 	this->opengl_vendor		= std::string((const char*)glGetString(GL_VENDOR));
 	this->opengl_renderer	= std::string((const char*)glGetString(GL_RENDERER));
@@ -1985,29 +1998,6 @@ void OpenGLEngine::initialise(const std::string& data_dir_, Reference<TextureSer
 			ImageMapUInt8Ref dummy_black_tex_map = new ImageMapUInt8(1, 1, 1);
 			dummy_black_tex_map->getPixel(0, 0)[0] = 0;
 			this->dummy_black_tex = getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__dummy_black_tex__"), *dummy_black_tex_map);
-		}
-		
-		// Create a fallback "missing texture" (magenta/black checker) for when a texture file is not present.
-		{
-			ImageMapUInt8Ref missing_tex_map = new ImageMapUInt8(2, 2, 3);
-			// (0,0) magenta, (1,0) black, (0,1) black, (1,1) magenta
-			auto setPix = [&](int x, int y, uint8 r, uint8 g, uint8 b)
-			{
-				uint8* p = missing_tex_map->getPixel(x, y);
-				p[0] = r; p[1] = g; p[2] = b;
-			};
-			setPix(0, 0, 255,   0, 255);
-			setPix(1, 0,   0,   0,   0);
-			setPix(0, 1,   0,   0,   0);
-			setPix(1, 1, 255,   0, 255);
-			
-			TextureParams params;
-			params.filtering = OpenGLTexture::Filtering_Nearest;
-			params.wrapping = OpenGLTexture::Wrapping_Clamp;
-			params.allow_compression = false;
-			params.use_mipmaps = false;
-			params.use_sRGB = true;
-			this->missing_tex = getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__missing_tex__"), *missing_tex_map, params);
 		}
 
 
@@ -4989,31 +4979,6 @@ Reference<OpenGLTexture> OpenGLEngine::getTexture(const std::string& tex_path, c
 {
 	try
 	{
-		// If the texture file is missing on disk, return a fallback texture instead of attempting to decode.
-		// Some decoders/paths can fail hard when given a non-existent file path.
-		if(!FileUtils::fileExists(tex_path))
-		{
-			// missing_tex is created during OpenGLEngine init, but be defensive.
-			if(missing_tex.nonNull())
-				return missing_tex;
-			else
-			{
-				ImageMapUInt8Ref missing_tex_map = new ImageMapUInt8(2, 2, 3);
-				uint8* p0 = missing_tex_map->getPixel(0, 0); p0[0] = 255; p0[1] = 0; p0[2] = 255;
-				uint8* p1 = missing_tex_map->getPixel(1, 0); p1[0] = 0;   p1[1] = 0; p1[2] = 0;
-				uint8* p2 = missing_tex_map->getPixel(0, 1); p2[0] = 0;   p2[1] = 0; p2[2] = 0;
-				uint8* p3 = missing_tex_map->getPixel(1, 1); p3[0] = 255; p3[1] = 0; p3[2] = 255;
-
-				TextureParams missing_params;
-				missing_params.filtering = OpenGLTexture::Filtering_Nearest;
-				missing_params.wrapping = OpenGLTexture::Wrapping_Clamp;
-				missing_params.allow_compression = false;
-				missing_params.use_mipmaps = false;
-				missing_params.use_sRGB = true;
-				return this->getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("__missing_tex__"), *missing_tex_map, missing_params);
-			}
-		}
-
 		const std::string tex_key = this->texture_server.nonNull() ? this->texture_server->keyForPath(tex_path) : tex_path;
 
 		const OpenGLTextureKey texture_key(tex_key);
@@ -6176,10 +6141,12 @@ public:
 
 				const float DEBUG_SPEED_FACTOR = 1;
 
-				const AnimationDatum& anim_datum_a = *anim_data.animations[myClamp(ob->current_anim_i, 0, (int)anim_data.animations.size() - 1)];
+				const AnimationDatum& anim_datum_a                       = *anim_data.animations        [myClamp(ob->current_anim_i, 0, (int)anim_data.animations.size() - 1)];
+				const std::vector<PerAnimationNodeData>& anim_a_node_data = anim_data.per_anim_node_data[myClamp(ob->current_anim_i, 0, (int)anim_data.animations.size() - 1)];
 
 				const int use_next_anim_i = (ob->next_anim_i == -1) ? ob->current_anim_i : ob->next_anim_i;
-				const AnimationDatum& anim_datum_b = *anim_data.animations[myClamp(use_next_anim_i,    0, (int)anim_data.animations.size() - 1)];
+				const AnimationDatum& anim_datum_b                        = *anim_data.animations       [myClamp(use_next_anim_i,    0, (int)anim_data.animations.size() - 1)];
+				const std::vector<PerAnimationNodeData>& anim_b_node_data = anim_data.per_anim_node_data[myClamp(use_next_anim_i,    0, (int)anim_data.animations.size() - 1)];
 
 				const float transition_frac = (float)Maths::smoothStep<double>(ob->transition_start_time, ob->transition_end_time, current_time);
 
@@ -6203,17 +6170,19 @@ public:
 				// For example the avatar idle animation only uses input accessor 9, and there are 33 input accessors in total.
 				// So for the idle animation we only need to do the keyframe search for input accessor 9, not the 32 other accessors.
 
-				const size_t keyframe_times_size = anim_data.keyframe_times.size();
+				const size_t keyframe_times_size = myMax(anim_data.keyframe_times.size(), anim_datum_a.m_keyframe_times.size(), anim_datum_b.m_keyframe_times.size());
 				key_frame_locs.resizeNoCopy(keyframe_times_size * 2); // keyframe times for animation a are first, then keyframe times for animation b.
 
 				//------------------------ Compute keyframe times for animation a -------------------------
 				if(transition_frac < 1.f) // At transition_frac = 1, result is fully animation b, a is used if transition_frac < 1
 				{
+					const js::Vector<KeyFrameTimeInfo>& keyframe_times_a = (!anim_datum_a.m_keyframe_times.empty()) ? anim_datum_a.m_keyframe_times : anim_data.keyframe_times;
+
 					for(size_t q=0; q<anim_datum_a.used_input_accessor_indices.size(); ++q)
 					{
 						const int input_accessor_i = anim_datum_a.used_input_accessor_indices[q];
 
-						const KeyFrameTimeInfo& keyframe_time_info = anim_data.keyframe_times[input_accessor_i];
+						const KeyFrameTimeInfo& keyframe_time_info = keyframe_times_a[input_accessor_i];
 						assert(keyframe_time_info.times_size == (int)keyframe_time_info.times.size());
 
 						const float in_anim_time = use_in_anim_time_a;
@@ -6315,11 +6284,13 @@ public:
 				//------------------------ Compute keyframe times for animation b -------------------------
 				if(transition_frac > 0.f) // At transition_frac = 0, result is fully animation a, b is used if transition_frac > 0
 				{
+					const js::Vector<KeyFrameTimeInfo>& keyframe_times_b = (!anim_datum_b.m_keyframe_times.empty()) ? anim_datum_b.m_keyframe_times : anim_data.keyframe_times;
+
 					for(size_t q=0; q<anim_datum_b.used_input_accessor_indices.size(); ++q)
 					{
 						const int input_accessor_i = anim_datum_b.used_input_accessor_indices[q];
 
-						const KeyFrameTimeInfo& keyframe_time_info = anim_data.keyframe_times[input_accessor_i];
+						const KeyFrameTimeInfo& keyframe_time_info = keyframe_times_b[input_accessor_i];
 						assert(keyframe_time_info.times_size == (int)keyframe_time_info.times.size());
 
 						const float in_anim_time = use_in_anim_time_b;
@@ -6410,12 +6381,15 @@ public:
 
 				node_matrices.resizeNoCopy(anim_data.sorted_nodes.size()); // A temp buffer to store node transforms that we can look up parent node transforms in.
 
+				const js::Vector<js::Vector<Vec4f, 16> >& output_data_a = (!anim_datum_a.m_output_data.empty()) ? anim_datum_a.m_output_data : anim_data.output_data;
+				const js::Vector<js::Vector<Vec4f, 16> >& output_data_b = (!anim_datum_b.m_output_data.empty()) ? anim_datum_b.m_output_data : anim_data.output_data;
+
 				for(size_t n=0; n<anim_data.sorted_nodes.size(); ++n)
 				{
 					const int node_i = anim_data.sorted_nodes[n];
 					const AnimationNodeData& node_data = anim_data.nodes[node_i];
-					const PerAnimationNodeData& node_a = anim_datum_a.per_anim_node_data[node_i];
-					const PerAnimationNodeData& node_b = anim_datum_b.per_anim_node_data[node_i];
+					const PerAnimationNodeData& node_a = anim_a_node_data[node_i];
+					const PerAnimationNodeData& node_b = anim_b_node_data[node_i];
 
 					Vec4f trans_a = node_data.trans;
 					Vec4f trans_b = node_data.trans;
@@ -6435,8 +6409,8 @@ public:
 							const float frac = key_frame_locs[node_a.translation_input_accessor].frac;
 
 							// read translation values from output accessor.
-							const Vec4f trans_0 = (anim_data.output_data[node_a.translation_output_accessor])[i_0];
-							const Vec4f trans_1 = (anim_data.output_data[node_a.translation_output_accessor])[i_1];
+							const Vec4f trans_0 = (output_data_a[node_a.translation_output_accessor])[i_0];
+							const Vec4f trans_1 = (output_data_a[node_a.translation_output_accessor])[i_1];
 							trans_a = Maths::lerp(trans_0, trans_1, frac); // TODO: handle step interpolation, cubic lerp etc..
 						}
 
@@ -6447,8 +6421,8 @@ public:
 							const float frac = key_frame_locs[node_a.rotation_input_accessor].frac;
 
 							// read rotation values from output accessor
-							const Quatf rot_0 = Quatf((anim_data.output_data[node_a.rotation_output_accessor])[i_0]);
-							const Quatf rot_1 = Quatf((anim_data.output_data[node_a.rotation_output_accessor])[i_1]);
+							const Quatf rot_0 = Quatf((output_data_a[node_a.rotation_output_accessor])[i_0]);
+							const Quatf rot_1 = Quatf((output_data_a[node_a.rotation_output_accessor])[i_1]);
 							rot_a = Quatf::nlerp(rot_0, rot_1, frac);
 						}
 
@@ -6459,8 +6433,8 @@ public:
 							const float frac = key_frame_locs[node_a.scale_input_accessor].frac;
 
 							// read scale values from output accessor
-							const Vec4f scale_0 = (anim_data.output_data[node_a.scale_output_accessor])[i_0];
-							const Vec4f scale_1 = (anim_data.output_data[node_a.scale_output_accessor])[i_1];
+							const Vec4f scale_0 = (output_data_a[node_a.scale_output_accessor])[i_0];
+							const Vec4f scale_1 = (output_data_a[node_a.scale_output_accessor])[i_1];
 							scale_a = Maths::lerp(scale_0, scale_1, frac);
 						}
 					}
@@ -6474,8 +6448,8 @@ public:
 							const float frac = key_frame_locs[keyframe_times_size + node_b.translation_input_accessor].frac;
 
 							// read translation values from output accessor.
-							const Vec4f trans_0 = (anim_data.output_data[node_b.translation_output_accessor])[i_0];
-							const Vec4f trans_1 = (anim_data.output_data[node_b.translation_output_accessor])[i_1];
+							const Vec4f trans_0 = (output_data_b[node_b.translation_output_accessor])[i_0];
+							const Vec4f trans_1 = (output_data_b[node_b.translation_output_accessor])[i_1];
 							trans_b = Maths::lerp(trans_0, trans_1, frac); // TODO: handle step interpolation, cubic lerp etc..
 						}
 
@@ -6486,8 +6460,8 @@ public:
 							const float frac = key_frame_locs[keyframe_times_size + node_b.rotation_input_accessor].frac;
 
 							// read rotation values from output accessor
-							const Quatf rot_0 = Quatf((anim_data.output_data[node_b.rotation_output_accessor])[i_0]);
-							const Quatf rot_1 = Quatf((anim_data.output_data[node_b.rotation_output_accessor])[i_1]);
+							const Quatf rot_0 = Quatf((output_data_b[node_b.rotation_output_accessor])[i_0]);
+							const Quatf rot_1 = Quatf((output_data_b[node_b.rotation_output_accessor])[i_1]);
 							rot_b = Quatf::nlerp(rot_0, rot_1, frac);
 						}
 
@@ -6498,8 +6472,8 @@ public:
 							const float frac = key_frame_locs[keyframe_times_size + node_b.scale_input_accessor].frac;
 
 							// read scale values from output accessor
-							const Vec4f scale_0 = (anim_data.output_data[node_b.scale_output_accessor])[i_0];
-							const Vec4f scale_1 = (anim_data.output_data[node_b.scale_output_accessor])[i_1];
+							const Vec4f scale_0 = (output_data_b[node_b.scale_output_accessor])[i_0];
+							const Vec4f scale_1 = (output_data_b[node_b.scale_output_accessor])[i_1];
 							scale_b = Maths::lerp(scale_0, scale_1, frac);
 						}
 					}
@@ -11161,17 +11135,7 @@ void OpenGLEngine::bindStandardTexturesToTextureUnits()
 	//if(this->detail_heightmap[0])
 	//	bindTextureToTextureUnit(*this->detail_heightmap[0], /*texture_unit_index=*/DETAIL_HEIGHTMAP_TEXTURE_UNIT_INDEX); // Not used in fragment shader currently
 
-	// Bind aurora texture if enabled, otherwise bind black texture
-	// Check if aurora should be enabled: scene exists, draw_aurora is true, and aurora texture is available
-	if(current_scene != nullptr && current_scene->draw_aurora && aurora_tex.nonNull())
-	{
-		bindTextureToTextureUnit(*aurora_tex, /*texture_unit_index=*/AURORA_TEXTURE_UNIT_INDEX);
-	}
-	else
-	{
-		// Use black texture if disabled or scene not ready (dummy_black_tex is initialized in initialise())
-		bindTextureToTextureUnit(*dummy_black_tex, /*texture_unit_index=*/AURORA_TEXTURE_UNIT_INDEX);
-	}
+	bindTextureToTextureUnit(aurora_tex ? *aurora_tex : *dummy_black_tex, /*texture_unit_index=*/AURORA_TEXTURE_UNIT_INDEX);
 
 	// 15 textures bound before here
 	
@@ -12548,36 +12512,42 @@ void OpenGLEngine::toggleShowTexDebug(int index)
 		if(index == 0)
 		{
 			// AO
+			conPrint("Showing AO");
 			large_debug_overlay_ob->material.albedo_texture = this->ssao_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_w = true;
 		}
 		else if(index == 1)
 		{
 			// blurred AO
+			conPrint("Showing blurred AO");
 			large_debug_overlay_ob->material.albedo_texture = this->blurred_ssao_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_w = true;
 		}
 		else if(index == 2)
 		{
 			// indirect illum
+			conPrint("Showing indirect illum");
 			large_debug_overlay_ob->material.albedo_texture = this->ssao_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_rgb = true;
 		}
 		else if(index == 3)
 		{
 			// blurred indirect illum
+			conPrint("Showing blurred indirect illum");
 			large_debug_overlay_ob->material.albedo_texture = this->blurred_ssao_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_rgb = true;
 		}
 		else if(index == 4)
 		{
 			// specular refl
+			conPrint("Showing specular");
 			large_debug_overlay_ob->material.albedo_texture = this->ssao_specular_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_rgb = true;
 		}
 		else if(index == 5)
 		{
 			// specular refl roughness * trace dist
+			conPrint("showing refl roughness * trace dist");
 			large_debug_overlay_ob->material.albedo_texture = this->ssao_specular_texture;
 			large_debug_overlay_ob->material.overlay_show_just_tex_w = true;
 

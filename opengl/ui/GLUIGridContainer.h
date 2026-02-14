@@ -38,7 +38,7 @@ public:
 		float background_alpha;
 		float z;
 
-		float cell_padding_px;
+		float cell_padding_px; // Default is 10 px.
 
 		bool background_consumes_events; // Should the background behind the grid consume click events etc.?
 	};
@@ -67,6 +67,8 @@ public:
 	void setClipRegion(const Rect2f& rect) override;
 
 	void setCellWidget(int cell_x, int cell_y, GLUIWidgetRef widget);
+
+	void clear(); // Remove all widgets from grid, resize cell_widgets to zero.
 
 	float getCellPaddding() const; // in UI coords
 
