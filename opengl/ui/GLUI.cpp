@@ -13,6 +13,7 @@ Copyright Glare Technologies Limited 2021 -
 #include "../utils/Exception.h"
 #include "../utils/ConPrint.h"
 #include "../utils/StringUtils.h"
+#include <functional>
 
 
 static const float TOOLTIP_Z = -0.999f; // -1 is near clip plane
@@ -379,8 +380,11 @@ OpenGLTextureRef GLUI::makeToolTipTexture(const std::string& tooltip_text)
 	const int padding_y = (int)(use_font_height * 0.6f);
 	
 
-	ImageMapUInt8Ref map = new ImageMapUInt8(size_info.glyphSize().x + padding_x * 2, use_font_height + padding_y * 2, 3);
-	map->set(240); // Set to light grey colour
+	// Be defensive: if the font system is unavailable/misconfigured, size_info may be zero, which can create a 0x0 texture.
+	const int tex_w = myMax(1, size_info.glyphSize().x + padding_x * 2);
+	const int tex_h = myMax(1, use_font_height + padding_y * 2);
+	ImageMapUInt8Ref map = new ImageMapUInt8(tex_w, tex_h, 3);
+	map->set(245); // Slightly lighter grey background
 
 	font->renderer->drawText(*map, tooltip_text, padding_x, padding_y + use_font_height, Colour3f(0.05f), /*render SDF=*/false, font.ptr(), emoji_font.ptr());
 
@@ -388,7 +392,13 @@ OpenGLTextureRef GLUI::makeToolTipTexture(const std::string& tooltip_text)
 	TextureParams tex_params;
 	tex_params.wrapping = OpenGLTexture::Wrapping_Clamp;
 	tex_params.allow_compression = false;
-	return opengl_engine->getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey("tooltip_" + tooltip_text), *map, tex_params);
+	tex_params.use_mipmaps = false;
+	tex_params.filtering = OpenGLTexture::Filtering_Bilinear;
+
+	// Use a stable ASCII key to avoid issues with non-ASCII tooltip strings.
+	std::hash<std::string> h;
+	const std::string key = "tooltip_" + toString(h(tooltip_text)) + "_" + toString(tooltip_text.size());
+	return opengl_engine->getOrLoadOpenGLTextureForMap2D(OpenGLTextureKey(key), *map, tex_params);
 }
 
 
