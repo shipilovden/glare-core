@@ -11135,7 +11135,15 @@ void OpenGLEngine::bindStandardTexturesToTextureUnits()
 	//if(this->detail_heightmap[0])
 	//	bindTextureToTextureUnit(*this->detail_heightmap[0], /*texture_unit_index=*/DETAIL_HEIGHTMAP_TEXTURE_UNIT_INDEX); // Not used in fragment shader currently
 
-	bindTextureToTextureUnit(aurora_tex ? *aurora_tex : *dummy_black_tex, /*texture_unit_index=*/AURORA_TEXTURE_UNIT_INDEX);
+	// Important: when aurora is disabled in scene settings, bind black texture instead of stale aurora_tex.
+	// Otherwise previously generated aurora content keeps rendering even after disabling the checkbox.
+	const bool use_aurora_tex =
+		draw_aurora &&
+		(this->current_scene != NULL) &&
+		this->current_scene->draw_aurora &&
+		(this->sun_dir[2] < 0.1f) &&
+		aurora_tex.nonNull();
+	bindTextureToTextureUnit(use_aurora_tex ? *aurora_tex : *dummy_black_tex, /*texture_unit_index=*/AURORA_TEXTURE_UNIT_INDEX);
 
 	// 15 textures bound before here
 	
