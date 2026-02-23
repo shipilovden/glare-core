@@ -69,6 +69,9 @@ void HTTPClient::connect(const std::string& protocol, const std::string& hostnam
 			TLSConfig client_tls_config;
 
 			tls_config_insecure_noverifycert(client_tls_config.config); // TEMP: try and work out how to remove this call.
+			// HTTPClient parses HTTP/1.x text responses. Force ALPN to HTTP/1.1 so servers don't select HTTP/2.
+			if(tls_config_set_alpn(client_tls_config.config, "http/1.1") != 0)
+				throw MySocketExcep("tls_config_set_alpn failed: " + getTLSConfigErrorString(client_tls_config.config));
 
 			this->socket = new TLSSocket(plain_socket, client_tls_config.config, hostname);
 		}
