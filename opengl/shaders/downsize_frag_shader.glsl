@@ -17,8 +17,12 @@ in vec2 pos; // [0, 1] x [0, 1]
 out vec4 colour_out;
 
 
-vec4 resolveTextureSample(ivec2 px_coords)
+vec4 resolveTextureSample(ivec2 px_coords, ivec2 tex_res)
 {
+	// Use zero for out of bounds, otherwise bright spots become brighter when on the edge of the screen.
+	if(any(greaterThanEqual(px_coords, tex_res)) || any(lessThan(px_coords, ivec2(0,0))))
+		return vec4(0.0);
+
 #if DOWNSIZE_FROM_MAIN_BUF && (MAIN_BUFFER_MSAA_SAMPLES > 1)
 	vec4 col = vec4(0.f);
 	for(int i=0; i<MAIN_BUFFER_MSAA_SAMPLES; ++i)
@@ -69,12 +73,12 @@ void main()
 	ivec2 tex_res = textureSize(albedo_texture, /*mip level*/0);
 #endif
 
-	ivec2 px_coords = ivec2(int(float(tex_res.x) * pos.x - 0.5), int(float(tex_res.y) * pos.y - 0.5));
+	ivec2 px_coords = ivec2(int(float(tex_res.x) * pos.x + 0.5), int(float(tex_res.y) * pos.y + 0.5));
 
-	vec4 texcol_0 =	resolveTextureSample(px_coords + ivec2(0, 0));
-	vec4 texcol_1 =	resolveTextureSample(px_coords + ivec2(1, 0));
-	vec4 texcol_2 =	resolveTextureSample(px_coords + ivec2(1, 1));
-	vec4 texcol_3 =	resolveTextureSample(px_coords + ivec2(0, 1));
+	vec4 texcol_0 =	resolveTextureSample(px_coords + ivec2(0, 0), tex_res);
+	vec4 texcol_1 =	resolveTextureSample(px_coords + ivec2(1, 0), tex_res);
+	vec4 texcol_2 =	resolveTextureSample(px_coords + ivec2(1, 1), tex_res);
+	vec4 texcol_3 =	resolveTextureSample(px_coords + ivec2(0, 1), tex_res);
 
 	vec4 col;
 
@@ -102,7 +106,12 @@ void main()
 	col += L;
 
 #else
-	col = (texcol_0 + texcol_1 + texcol_2 + texcol_3) * (1.0 / 4.0);
+	col = vec4(0.0);
+	int r = 2;
+	for(int y=-r; y<r; ++y)
+	for(int x=-r; x<r; ++x)
+		col += resolveTextureSample(px_coords + ivec2(x, y), tex_res);
+	col *= (1.0 / (float((2 * r) * (2 * r))));
 #endif
 
 	float av = (col.x + col.y + col.z) * (1.0 / 3.0);
