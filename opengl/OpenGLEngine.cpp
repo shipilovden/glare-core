@@ -7143,6 +7143,12 @@ void OpenGLEngine::draw()
 	common_uniforms.sun_spec_rad_times_solid_angle = this->sun_spec_rad_times_solid_angle * 1.0e-9f;
 	common_uniforms.sun_and_sky_av_spec_rad = this->sun_and_sky_av_spec_rad * 1.0e-9f;
 	common_uniforms.air_scattering_coeffs = this->air_scattering_coeffs;
+	common_uniforms.fog_settings = Vec4f(
+		this->current_scene->fog_settings.layer_0_A,
+		this->current_scene->fog_settings.layer_0_B,
+		this->current_scene->fog_settings.layer_1_A,
+		this->current_scene->fog_settings.layer_1_B
+	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;
 	common_uniforms.far_clip_dist = this->current_scene->max_draw_dist;

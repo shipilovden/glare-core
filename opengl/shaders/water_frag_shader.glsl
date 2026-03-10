@@ -877,8 +877,7 @@ void main()
 
 #if DEPTH_FOG
 	// Blend with background/fog colour
-	float dist_ = max(0.0, -pos_cs.z); // Max with 0 avoids bright artifacts on horizon.
-	vec3 transmission = exp(air_scattering_coeffs.xyz * -dist_);
+	vec3 transmission = getFogTransmission(pos_ws);
 
 	col.xyz *= transmission;
 	col.xyz += sun_and_sky_av_spec_rad.xyz * (1.0 - transmission);

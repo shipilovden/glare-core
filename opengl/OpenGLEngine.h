@@ -68,6 +68,20 @@ class BufferedTimeElapsedQuery;
 namespace glare { class BestFitAllocator; }
 template <class V, class VTraits> class ImageMap;
 
+struct FogSettings
+{
+	FogSettings()
+	:	layer_0_A(1.f),
+		layer_0_B(0.f),
+		layer_1_A(0.f),
+		layer_1_B(0.f)
+	{}
+
+	float layer_0_A;
+	float layer_0_B;
+	float layer_1_A;
+	float layer_1_B;
+};
 
 
 struct OpenGLUniformVal // variant class
@@ -587,6 +601,8 @@ public:
 
 	float water_level_z; // Default = 0.  Controls drawing of underwater caustics.
 
+	FogSettings fog_settings;
+
 	float dof_blur_strength; // Default = 0.
 	float dof_blur_focus_distance; // Default = 1.
 
@@ -791,6 +807,7 @@ struct MaterialCommonUniforms
 	Vec4f sun_spec_rad_times_solid_angle; // spectral rad * 1.0e-9 * solid angle
 	Vec4f sun_and_sky_av_spec_rad; // spectral rad * 1.0e-9
 	Vec4f air_scattering_coeffs;
+	Vec4f fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
 	Vec4f mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

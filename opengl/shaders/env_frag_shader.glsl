@@ -185,7 +185,8 @@ void main()
 	// Blend lower hemisphere into a colour that matches fogged ground quad in Substrata
 	vec4 lower_hemis_col = sun_and_sky_av_spec_rad * 0.9;
 	
-	float lower_hemis_factor = smoothstep(1.52, 1.6, texture_coords.y);
+	float fog_presence = 1.0 - exp(-6.0 * max(0.0, fog_settings.x + fog_settings.z));
+	float lower_hemis_factor = smoothstep(1.52, 1.6, texture_coords.y) * fog_presence;
 	col = mix(col, lower_hemis_col, lower_hemis_factor);
 #endif
 

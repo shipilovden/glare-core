@@ -10,6 +10,7 @@ layout (std140) uniform MaterialCommonUniforms
 	vec4 sun_spec_rad_times_solid_angle;
 	vec4 sun_and_sky_av_spec_rad;
 	vec4 air_scattering_coeffs;
+	vec4 fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
 	vec4 mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;
@@ -33,6 +34,54 @@ layout (std140) uniform MaterialCommonUniforms
 #define CLOUD_SHADOWS_FLAG					1
 #define DO_SSAO_FLAG						2
 #define DOING_SSAO_PREPASS_FLAG				4
+
+
+float fogLayerDensityIntegral(float cam_z, float frag_z, float dist, float A, float B)
+{
+	if(A <= 0.0 || dist <= 0.0)
+		return 0.0;
+
+	if(abs(B) < 1.0e-8)
+		return A * dist;
+
+	float dz = (frag_z - cam_z) / dist;
+	if(abs(dz) < 1.0e-6)
+		return A * exp(-B * cam_z) * dist;
+
+	return A * (exp(-B * cam_z) - exp(-B * frag_z)) / (B * dz);
+}
+
+
+float getFogDensityIntegral(vec3 frag_pos_ws)
+{
+	// Use height relative to the camera instead of absolute world Z, otherwise fog becomes unintuitively weak
+	// in worlds whose terrain happens to live at a large absolute elevation.
+	float cam_z = 0.0;
+	float frag_z = frag_pos_ws.z - mat_common_campos_ws.z;
+	vec3 cam_to_frag_ws = frag_pos_ws - mat_common_campos_ws.xyz;
+	float dist = length(cam_to_frag_ws);
+
+	return
+		fogLayerDensityIntegral(cam_z, frag_z, dist, fog_settings.x, fog_settings.y) +
+		fogLayerDensityIntegral(cam_z, frag_z, dist, fog_settings.z, fog_settings.w);
+}
+
+
+float getFogOpticalDepth(vec3 frag_pos_ws)
+{
+	// The world-settings fog UI is tuned for artist-facing values in roughly "per kilometre" units,
+	// while the original atmospheric depth fog uses physical air_scattering_coeffs on the order of 1e-5.
+	// Convert the integrated fog density to a practical optical depth directly so the UI has a clearly visible effect
+	// on medium and long distances in typical Metasiberia world scales.
+	const float fog_extinction_scale = 0.01;
+	return max(0.0, getFogDensityIntegral(frag_pos_ws) * fog_extinction_scale);
+}
+
+
+vec3 getFogTransmission(vec3 frag_pos_ws)
+{
+	return vec3(exp(-getFogOpticalDepth(frag_pos_ws)));
+}
 
 
 // MaterialData flag values

@@ -1008,7 +1008,7 @@ void main()
 
 #if DEPTH_FOG
 	// Blend with background/fog colour
-	vec3 transmission = exp(air_scattering_coeffs.xyz * -cam_to_pos_dist);
+	vec3 transmission = getFogTransmission(pos_ws);
 
 	col *= transmission;
 	col += sun_and_sky_av_spec_rad.xyz * (1.0 - transmission); // Add in-scattered sky+sunlight
