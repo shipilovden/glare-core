@@ -71,7 +71,8 @@ template <class V, class VTraits> class ImageMap;
 struct FogSettings
 {
 	FogSettings()
-	:	layer_0_A(1.f),
+	:	// World fog is opt-in via WorldSettings, so keep scene fog disabled until settings are applied.
+		layer_0_A(0.f),
 		layer_0_B(0.f),
 		layer_1_A(0.f),
 		layer_1_B(0.f)
