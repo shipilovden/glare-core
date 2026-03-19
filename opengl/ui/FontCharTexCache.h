@@ -11,6 +11,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "../../utils/RefCounted.h"
 #include "../../utils/Reference.h"
 #include "../../maths/Rect2.h"
+#include <functional>
 #include <string>
 
 
@@ -70,6 +71,7 @@ private:
 	{
 		bool is_emoji_font;
 		bool sdf;
+		const TextRendererFontFaceSizeSet* font_set;
 		int font_size_px;
 		std::string charstring;
 
@@ -82,6 +84,11 @@ private:
 			if(sdf < b.sdf)
 				return true;
 			if(sdf > b.sdf)
+				return false;
+			const std::less<const TextRendererFontFaceSizeSet*> ptr_less;
+			if(ptr_less(font_set, b.font_set))
+				return true;
+			if(ptr_less(b.font_set, font_set))
 				return false;
 			if(font_size_px < b.font_size_px)
 				return true;
