@@ -331,6 +331,7 @@ OpenGLScene::OpenGLScene(OpenGLEngine& engine)
 	lens_shift_up_distance = 0;
 	lens_shift_right_distance = 0;
 	camera_type = OpenGLScene::CameraType_Perspective;
+	projection_matrix_override_valid = false;
 	background_colour = Colour3f(0.1f);
 	use_z_up = true;
 	bloom_strength = 0;
@@ -617,6 +618,7 @@ void OpenGLScene::setPerspectiveCameraTransform(const Matrix4f& world_to_camera_
 	float lens_shift_right_distance_, float viewport_aspect_ratio)
 {
 	camera_type = OpenGLScene::CameraType_Perspective;
+	projection_matrix_override_valid = false;
 
 	this->world_to_camera_space_matrix = world_to_camera_space_matrix_;
 	this->lens_sensor_dist = lens_sensor_dist_;
@@ -813,6 +815,7 @@ void OpenGLScene::setOrthoCameraTransform(const Matrix4f& world_to_camera_space_
 	float lens_shift_right_distance_, float viewport_aspect_ratio)
 {
 	camera_type = CameraType_Orthographic;
+	projection_matrix_override_valid = false;
 
 	this->world_to_camera_space_matrix = world_to_camera_space_matrix_;
 	this->lens_sensor_dist = 1.f;
@@ -919,6 +922,7 @@ void OpenGLScene::setOrthoCameraTransform(const Matrix4f& world_to_camera_space_
 void OpenGLScene::setDiagonalOrthoCameraTransform(const Matrix4f& world_to_camera_space_matrix_, float sensor_width_, float render_aspect_ratio_, float viewport_aspect_ratio)
 {
 	camera_type = CameraType_DiagonalOrthographic;
+	projection_matrix_override_valid = false;
 
 	this->world_to_camera_space_matrix = world_to_camera_space_matrix_;
 	this->lens_sensor_dist = 1.f;
@@ -1029,6 +1033,7 @@ void OpenGLScene::setDiagonalOrthoCameraTransform(const Matrix4f& world_to_camer
 void OpenGLScene::setIdentityCameraTransform()
 {
 	camera_type = CameraType_Identity;
+	projection_matrix_override_valid = false;
 	this->world_to_camera_space_matrix = Matrix4f::identity();
 	this->cam_to_world = Matrix4f::identity();
 
@@ -1052,6 +1057,31 @@ void OpenGLEngine::setDiagonalOrthoCameraTransform(const Matrix4f& world_to_came
 void OpenGLEngine::setIdentityCameraTransform()
 {
 	current_scene->setIdentityCameraTransform();
+}
+
+
+void OpenGLScene::setProjectionMatrixOverride(const Matrix4f& projection_matrix_)
+{
+	projection_matrix_override_valid = true;
+	projection_matrix_override = projection_matrix_;
+}
+
+
+void OpenGLScene::clearProjectionMatrixOverride()
+{
+	projection_matrix_override_valid = false;
+}
+
+
+void OpenGLEngine::setProjectionMatrixOverride(const Matrix4f& projection_matrix)
+{
+	current_scene->setProjectionMatrixOverride(projection_matrix);
+}
+
+
+void OpenGLEngine::clearProjectionMatrixOverride()
+{
+	current_scene->clearProjectionMatrixOverride();
 }
 
 
@@ -7429,7 +7459,13 @@ void OpenGLEngine::draw()
 	const Matrix4f reverse_z_matrix     = getReverseZMatrixOrIdentity();
 
 	Matrix4f proj_matrix;
-	if(current_scene->camera_type == OpenGLScene::CameraType_Perspective)
+	if(current_scene->projection_matrix_override_valid)
+	{
+		proj_matrix = current_scene->projection_matrix_override;
+		if(use_reverse_z)
+			proj_matrix = reverse_z_matrix * proj_matrix;
+	}
+	else if(current_scene->camera_type == OpenGLScene::CameraType_Perspective)
 	{
 		const double w = 0.5 * current_scene->use_sensor_width  / current_scene->lens_sensor_dist; // Half width of camera view frustum at distance 1 from camera.
 		const double h = 0.5 * current_scene->use_sensor_height / current_scene->lens_sensor_dist;
@@ -10319,7 +10355,7 @@ void OpenGLEngine::drawAlwaysVisibleObjects(const Matrix4f& view_matrix, const M
 		for(auto it = current_scene->always_visible_objects.begin(); it != current_scene->always_visible_objects.end(); ++it)
 		{
 			const GLObject* const ob = it->getPointer();
-			if(AABBIntersectsFrustum(current_scene->frustum_clip_planes, current_scene->num_frustum_clip_planes, current_scene->frustum_aabb, ob->aabb_ws))
+			// These objects are explicitly marked always_visible for editor/XR overlays, so let the GPU clip them rather than CPU-frustum-culling them away.
 			{
 				const OpenGLMeshRenderData& mesh_data = *ob->mesh_data;
 				bindMeshData(*ob); // Bind the mesh data, which is the same for all batches.
@@ -10347,7 +10383,7 @@ void OpenGLEngine::drawAlwaysVisibleObjects(const Matrix4f& view_matrix, const M
 		for(auto it = current_scene->always_visible_objects.begin(); it != current_scene->always_visible_objects.end(); ++it)
 		{
 			const GLObject* const ob = it->getPointer();
-			if(AABBIntersectsFrustum(current_scene->frustum_clip_planes, current_scene->num_frustum_clip_planes, current_scene->frustum_aabb, ob->aabb_ws))
+			// These objects are explicitly marked always_visible for editor/XR overlays, so let the GPU clip them rather than CPU-frustum-culling them away.
 			{
 				const OpenGLMeshRenderData& mesh_data = *ob->mesh_data;
 				bindMeshData(*ob); // Bind the mesh data, which is the same for all batches.
