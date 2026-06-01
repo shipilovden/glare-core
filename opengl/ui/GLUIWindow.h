@@ -69,6 +69,8 @@ public:
 
 	void setBodyWidget(const GLUIWidgetRef body_widget);
 
+	void setTitle(GLUI& glui, const std::string& new_title);
+
 	virtual void handleMousePress(MouseEvent& event) override;
 	virtual void handleMouseRelease(MouseEvent& event) override;
 	virtual void handleMouseDoubleClick(MouseEvent& event) override;

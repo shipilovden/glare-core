@@ -95,6 +95,13 @@ void GLUIWindow::setBodyWidget(const GLUIWidgetRef body_widget_)
 }
 
 
+void GLUIWindow::setTitle(GLUI& glui, const std::string& new_title)
+{
+	if(title_text)
+		title_text->setText(glui, new_title);
+}
+
+
 void GLUIWindow::handleMousePress(MouseEvent& event)
 {
 	if(!background_overlay_ob->draw || !args.background_consumes_events)

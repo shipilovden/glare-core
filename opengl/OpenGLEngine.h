@@ -573,6 +573,9 @@ public:
 
 	void calcCamFrustumVerts(float near_dist, float far_dist, Vec4f* verts_out) const;
 
+	void setProjectionMatrixOverride(const Matrix4f& projection_matrix_);
+	void clearProjectionMatrixOverride();
+
 	void unloadAllData();
 
 	GLMemUsage getTotalMemUsage() const;
@@ -631,6 +634,9 @@ private:
 	};
 
 	CameraType camera_type;
+
+	bool projection_matrix_override_valid;
+	Matrix4f projection_matrix_override;
 
 	Matrix4f world_to_camera_space_matrix; // Maps world space to a camera space where (1,0,0) is right, (0,1,0) is forwards and (0,0,1) is up.
 	Matrix4f cam_to_world;
@@ -1080,6 +1086,9 @@ public:
 	void setDiagonalOrthoCameraTransform(const Matrix4f& world_to_camera_space_matrix, float sensor_width, float render_aspect_ratio);
 
 	void setIdentityCameraTransform(); // See also use_z_up to use z-up like opengl.
+
+	void setProjectionMatrixOverride(const Matrix4f& projection_matrix);
+	void clearProjectionMatrixOverride();
 	//----------------------------------------------------------------------------------------
 
 
