@@ -12,6 +12,8 @@ Copyright Glare Technologies Limited 2021 -
 #include "Exception.h"
 #include "StringUtils.h"
 #include "../maths/mathstypes.h"
+#include <algorithm>
+#include <vector>
 
 
 
@@ -247,6 +249,147 @@ void Database::removeOldRecordsOnDisk(const std::string& path)
 
 	// Replace main database file with our temp file
 	FileUtils::moveFile(/*src path=*/temp_path, /* dest path=*/path);
+}
+
+
+size_t Database::removeOldRecordsOnDiskBestEffort(const std::string& path)
+{
+	assert(file_in == NULL);
+	assert(file_out == NULL);
+
+	size_t ignored_tail_bytes = 0;
+	const std::string temp_path = path + "_temp";
+	{
+		FileOutStream temp_file_out(temp_path, std::ios::binary | std::ios::out);
+
+		temp_file_out.writeUInt32(DATABASE_MAGIC_NUMBER);
+		temp_file_out.writeUInt32(DATABASE_SERIALISATION_VERSION);
+
+		this->db_path = path;
+
+		try
+		{
+			file_in = new FileInStream(path);
+
+			const uint32 magic_num = file_in->readUInt32();
+			if(magic_num != DATABASE_MAGIC_NUMBER)
+				throw glare::Exception("invalid magic number: not a valid database file.");
+
+			const uint32 version = file_in->readUInt32();
+			if(version != DATABASE_SERIALISATION_VERSION)
+				throw glare::Exception("invalid version: " + toString(version));
+
+			uint64 max_used_key = 0;
+			while(!file_in->endOfStream())
+			{
+				const size_t record_offset = file_in->getReadIndex();
+
+				if(!file_in->canReadNBytes(20))
+				{
+					ignored_tail_bytes = file_in->fileSize() - record_offset;
+					break;
+				}
+
+				DatabaseKey key;
+				key.val = file_in->readUInt64();
+
+				const uint32 len      = file_in->readUInt32();
+				const uint32 capacity = file_in->readUInt32();
+				const uint32 seq_num  = file_in->readUInt32();
+
+				if((len != std::numeric_limits<uint32>::max()) && (len > capacity))
+				{
+					ignored_tail_bytes = file_in->fileSize() - record_offset;
+					break;
+				}
+
+				if(!file_in->canReadNBytes(capacity))
+				{
+					ignored_tail_bytes = file_in->fileSize() - record_offset;
+					break;
+				}
+
+				const size_t new_unaligned_index = file_in->getReadIndex() + capacity;
+				const size_t new_read_index = Maths::roundUpToMultipleOfPowerOf2(new_unaligned_index, (size_t)4);
+				file_in->setReadIndex(new_read_index);
+
+				RecordInfo info;
+				info.offset = record_offset;
+				info.len = len;
+				info.capacity = capacity;
+				info.seq_num = seq_num;
+
+				if(len == std::numeric_limits<uint32>::max())
+				{
+					auto res = key_to_info_map.find(key);
+					if(res != key_to_info_map.end())
+					{
+						if(seq_num > res->second.seq_num)
+							key_to_info_map[key] = info;
+					}
+				}
+				else
+				{
+					auto res = key_to_info_map.find(key);
+					if(res == key_to_info_map.end())
+					{
+						key_to_info_map.insert(std::make_pair(key, info));
+					}
+					else
+					{
+						if(seq_num > res->second.seq_num)
+							key_to_info_map[key] = info;
+					}
+				}
+
+				max_used_key = myMax(max_used_key, key.val);
+			}
+
+			append_offset = file_in->getReadIndex();
+			next_unused_key = max_used_key + 1;
+		}
+		catch(glare::Exception& e)
+		{
+			finishReadingFromDisk();
+			throw glare::Exception("Error while reading database from '" + path + "': " + e.what());
+		}
+
+		std::vector<std::pair<DatabaseKey, Database::RecordInfo> > valid_records;
+		valid_records.reserve(getRecordMap().size());
+		for(auto it = getRecordMap().begin(); it != getRecordMap().end(); ++it)
+			if(it->second.isRecordValid())
+				valid_records.push_back(*it);
+
+		std::sort(valid_records.begin(), valid_records.end(), [](const std::pair<DatabaseKey, Database::RecordInfo>& a, const std::pair<DatabaseKey, Database::RecordInfo>& b) {
+			return a.second.offset < b.second.offset;
+		});
+
+		for(size_t i = 0; i < valid_records.size(); ++i)
+		{
+			const Database::RecordInfo& record = valid_records[i].second;
+			const uint8* data = getInitialRecordData(record);
+			const DatabaseKey key = valid_records[i].first;
+			const uint32 use_capacity = Maths::roundUpToMultipleOfPowerOf2<uint32>(record.len + 64, 4);
+			const uint32 use_seq_num = 0;
+
+			temp_buf.resizeNoCopy(sizeof(uint64) + sizeof(uint32) * 3 + use_capacity);
+
+			std::memcpy(&temp_buf[0], &key.val, sizeof(uint64));
+			std::memcpy(&temp_buf[8], &record.len, sizeof(uint32));
+			std::memcpy(&temp_buf[12], &use_capacity, sizeof(uint32));
+			std::memcpy(&temp_buf[16], &use_seq_num, sizeof(uint32));
+
+			if(record.len > 0)
+				std::memcpy(&temp_buf[20], data, record.len);
+			std::memset(&temp_buf[20] + record.len, 0, use_capacity - record.len);
+
+			temp_file_out.writeData(temp_buf.data(), temp_buf.size());
+		}
+		finishReadingFromDisk();
+	}
+
+	FileUtils::moveFile(/*src path=*/temp_path, /* dest path=*/path);
+	return ignored_tail_bytes;
 }
 
 

@@ -65,6 +65,7 @@ public:
 	void startReadingFromDisk(const std::string& path);
 
 	void removeOldRecordsOnDisk(const std::string& path); // Removes deleted records, removes old records.  Database can't have had any updates made to it since opening. (so that file_out is NULL)
+	size_t removeOldRecordsOnDiskBestEffort(const std::string& path); // Like removeOldRecordsOnDisk(), but ignores a truncated/corrupt tail record.
 
 	struct RecordInfo;
 
