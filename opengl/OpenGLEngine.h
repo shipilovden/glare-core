@@ -620,6 +620,7 @@ public:
 	float use_sensor_width;
 	float use_sensor_height;
 	float lens_sensor_dist;
+	const Matrix4f& getCamToWorld() const { return cam_to_world; }
 	float render_aspect_ratio;
 	float lens_shift_up_distance;
 	float lens_shift_right_distance;

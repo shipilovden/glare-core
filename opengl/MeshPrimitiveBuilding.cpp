@@ -1440,3 +1440,80 @@ Reference<OpenGLMeshRenderData> MeshPrimitiveBuilding::makeCircleSector(VertexBu
 
 	return GLMeshBuilding::buildMeshRenderData(allocator, verts, indices);
 }
+
+
+// A thin hollow rotation handle.  The old implementation used a filled circle
+// sector, which made the gizmo look like three opaque coloured wedges.  Keep
+// this mesh local to the primitive builder so the handle remains compatible
+// with the older glare-core API used by the Qt client.
+Reference<OpenGLMeshRenderData> MeshPrimitiveBuilding::makeRotationArcHandleMeshData(VertexBufferAllocator& allocator, float arc_end_angle)
+{
+	const int arc_res = 32;
+	const int tube_res = 12;
+	const float tube_radius = 0.01f;
+	const float head_length = 0.10f;
+	const float head_radius = 0.02f;
+
+	js::Vector<Vec3f, 16> verts;
+	js::Vector<uint32, 16> indices;
+	verts.reserve((size_t)arc_res * (size_t)tube_res * 4 + (size_t)tube_res * 6);
+	indices.reserve((size_t)arc_res * (size_t)tube_res * 6 + (size_t)tube_res * 6);
+
+	const Vec3f z_axis(0, 0, 1);
+	const auto add_arc_quad = [&verts, &indices](const Vec3f& p0, const Vec3f& p1, const Vec3f& r0, const Vec3f& r1, const Vec3f& r2, const Vec3f& r3)
+	{
+		const uint32 base = (uint32)verts.size();
+		verts.push_back(p0 + r0);
+		verts.push_back(p0 + r1);
+		verts.push_back(p1 + r2);
+		verts.push_back(p1 + r3);
+		indices.push_back(base + 0); indices.push_back(base + 1); indices.push_back(base + 2);
+		indices.push_back(base + 0); indices.push_back(base + 2); indices.push_back(base + 3);
+	};
+
+	for(int segment = 0; segment < arc_res; ++segment)
+	{
+		const float a0 = (float)segment * arc_end_angle / (float)arc_res;
+		const float a1 = (float)(segment + 1) * arc_end_angle / (float)arc_res;
+		const Vec3f radial0(std::cos(a0), std::sin(a0), 0);
+		const Vec3f radial1(std::cos(a1), std::sin(a1), 0);
+		const Vec3f p0 = radial0;
+		const Vec3f p1 = radial1;
+		for(int side = 0; side < tube_res; ++side)
+		{
+			const float t0 = (float)side * Maths::get2Pi<float>() / (float)tube_res;
+			const float t1 = (float)(side + 1) * Maths::get2Pi<float>() / (float)tube_res;
+			const Vec3f r0 = normalise(radial0 * std::cos(t0) + z_axis * std::sin(t0)) * tube_radius;
+			const Vec3f r1 = normalise(radial0 * std::cos(t1) + z_axis * std::sin(t1)) * tube_radius;
+			const Vec3f r2 = normalise(radial1 * std::cos(t1) + z_axis * std::sin(t1)) * tube_radius;
+			const Vec3f r3 = normalise(radial1 * std::cos(t0) + z_axis * std::sin(t0)) * tube_radius;
+			add_arc_quad(p0, p1, r0, r1, r2, r3);
+		}
+	}
+
+	const auto add_arrow_head = [&verts, &indices, tube_res, head_radius, head_length](const Vec3f& base, const Vec3f& radial, const Vec3f& direction)
+	{
+		const Vec3f side_axis(0, 0, 1);
+		for(int side = 0; side < tube_res; ++side)
+		{
+			const float t0 = (float)side * Maths::get2Pi<float>() / (float)tube_res;
+			const float t1 = (float)(side + 1) * Maths::get2Pi<float>() / (float)tube_res;
+			const Vec3f b0 = base + normalise(radial * std::cos(t0) + side_axis * std::sin(t0)) * head_radius;
+			const Vec3f b1 = base + normalise(radial * std::cos(t1) + side_axis * std::sin(t1)) * head_radius;
+			const Vec3f tip = base + direction * head_length;
+			const uint32 vertex = (uint32)verts.size();
+			verts.push_back(b0); verts.push_back(b1); verts.push_back(tip);
+			indices.push_back(vertex + 0); indices.push_back(vertex + 1); indices.push_back(vertex + 2);
+		}
+	};
+
+	const Vec3f start_radial(1, 0, 0);
+	const Vec3f start_direction(0, -1, 0);
+	add_arrow_head(start_radial, start_radial, start_direction);
+
+	const Vec3f end_radial(std::cos(arc_end_angle), std::sin(arc_end_angle), 0);
+	const Vec3f end_direction(-std::sin(arc_end_angle), std::cos(arc_end_angle), 0);
+	add_arrow_head(end_radial, end_radial, end_direction);
+
+	return GLMeshBuilding::buildMeshRenderData(allocator, verts, indices);
+}
