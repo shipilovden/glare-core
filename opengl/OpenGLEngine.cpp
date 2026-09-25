@@ -7194,6 +7194,12 @@ void OpenGLEngine::draw()
 		this->current_scene->volumetric_cloud_settings.wind_speed,
 		this->current_scene->volumetric_cloud_settings.max_march_dist
 	);
+	common_uniforms.cloud_settings_2 = Vec4f(
+		this->current_scene->volumetric_cloud_settings.bottom_darkness,
+		this->current_scene->volumetric_cloud_settings.edge_softness,
+		this->current_scene->volumetric_cloud_settings.horizon_fade,
+		0.f
+	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;
 	common_uniforms.far_clip_dist = this->current_scene->max_draw_dist;

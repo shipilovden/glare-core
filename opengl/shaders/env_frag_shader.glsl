@@ -102,11 +102,17 @@ float sampleVolumetricCloudDensity(vec3 p, float height01)
 	detail_uv += vec2(p.z / detail_period * 0.35);
 	float detail = fbmMix(detail_uv, fbm_tex) * 0.5 + 0.5;
 
-	// Cumulus clouds are soft at the base and break up towards the top.
-	float vertical_shape = smoothstep(0.0, 0.12, height01) * (1.0 - smoothstep(0.68, 1.0, height01));
+	// Cumulus clouds are soft at the base and break up towards the top.  The
+	// edge control affects both the height profile and the density threshold,
+	// keeping the cloud silhouette rounded instead of cut out by noise.
+	float edge_softness = clamp(cloud_settings_2.y, 0.0, 1.0);
+	float base_fade = mix(0.06, 0.22, edge_softness);
+	float top_fade_start = mix(0.76, 0.58, edge_softness);
+	float vertical_shape = smoothstep(0.0, base_fade, height01) * (1.0 - smoothstep(top_fade_start, 1.0, height01));
 	float coverage = clamp(cloud_settings_0.z, 0.02, 0.98);
 	float weather = shape + (detail - 0.5) * 0.30;
-	float cloud = smoothstep(coverage - 0.08, coverage + 0.14, weather);
+	float edge_width = mix(0.035, 0.20, edge_softness);
+	float cloud = smoothstep(coverage - edge_width * 0.65, coverage + edge_width, weather);
 	return cloud * vertical_shape;
 }
 
@@ -136,6 +142,11 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 	float density_scale = max(0.0, cloud_settings_0.w);
 	float sun_height = 0.55 + 0.45 * max(0.0, sundir_ws.z);
 	float view_sun = max(0.0, dot(ray_dir_ws, sundir_ws.xyz));
+	float bottom_darkness = clamp(cloud_settings_2.x, 0.0, 1.0);
+	float horizon_fade = clamp(cloud_settings_2.z, 0.0, 1.0);
+	float horizon_angle = radians(12.0);
+	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(horizon_angle)), ray_dir_ws.z);
+	float horizon_visibility = mix(1.0, horizon_view_factor, horizon_fade);
 
 	for(int i = 0; i < NUM_STEPS; ++i)
 	{
@@ -149,7 +160,8 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 			float segment_transmittance = exp(-optical_depth);
 			float segment_alpha = 1.0 - segment_transmittance;
 			float silver_lining = pow(view_sun, 6.0) * (1.0 - height01 * 0.45);
-			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4);
+			float underside_shadow = mix(1.0 - bottom_darkness * 0.78, 1.0, smoothstep(0.05, 0.55, height01));
+			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4) * underside_shadow;
 			scattered += transmittance * segment_alpha * cloud_light;
 			transmittance *= segment_transmittance;
 			if(transmittance < 0.01)
@@ -159,7 +171,8 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 		ray_t += step_len;
 	}
 
-	return vec4(sky_col.rgb * transmittance + scattered, sky_col.a);
+	vec3 cloud_result = sky_col.rgb * transmittance + scattered;
+	return vec4(mix(sky_col.rgb, cloud_result, horizon_visibility), sky_col.a);
 }
 #endif
 
