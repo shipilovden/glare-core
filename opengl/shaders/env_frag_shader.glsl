@@ -139,7 +139,10 @@ float cloudLightTransmittance(vec3 p, vec3 sun_dir, float bottom_z, float top_z,
 
 	// A short secondary march captures self-shadowing and silver lining while
 	// keeping the cost bounded.  The main view march remains the expensive path.
-	const int LIGHT_STEPS = 4;
+	// Three samples retain the self-shadow/silver-lining response while keeping
+	// the secondary march bounded.  This path runs for every occupied view
+	// sample, so one fewer sample has a noticeable effect on frame-time spikes.
+	const int LIGHT_STEPS = 3;
 	float light_step_len = min(2500.0, max(80.0, distance_to_top / float(LIGHT_STEPS)));
 	float light_transmittance = 1.0;
 	for(int i = 0; i < LIGHT_STEPS; ++i)
@@ -173,8 +176,14 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 		return sky_col;
 	ray_end = min(ray_end, ray_start + max_dist);
 
-	const int NUM_STEPS = 40;
-	float step_len = (ray_end - ray_start) / float(NUM_STEPS);
+	// Keep the higher step count at the horizon, where the cloud silhouette is
+	// most visible.  Rays directed higher into the sky cross a shorter and less
+	// detailed portion of the layer, so they can use fewer samples safely.
+	const int MAX_STEPS = 40;
+	float step_lod = smoothstep(0.02, 0.35, ray_dir_ws.z);
+	int num_steps = int(mix(float(MAX_STEPS), 28.0, step_lod));
+	num_steps = clamp(num_steps, 28, MAX_STEPS);
+	float step_len = (ray_end - ray_start) / float(num_steps);
 	float blue_noise = texture(blue_noise_tex, gl_FragCoord.xy * (1.0 / 64.0)).x;
 	float ray_t = ray_start + blue_noise * step_len;
 	float transmittance = 1.0;
@@ -203,8 +212,10 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(horizon_angle)), ray_dir_ws.z);
 	float horizon_visibility = mix(1.0, horizon_view_factor, horizon_fade);
 
-	for(int i = 0; i < NUM_STEPS; ++i)
+	for(int i = 0; i < MAX_STEPS; ++i)
 	{
+		if(i >= num_steps)
+			break;
 		vec3 p = campos_ws + ray_dir_ws * ray_t;
 		float height01 = clamp((p.z - bottom_z) / (top_z - bottom_z), 0.0, 1.0);
 		float density = sampleVolumetricCloudDensity(p, height01) * density_scale;
