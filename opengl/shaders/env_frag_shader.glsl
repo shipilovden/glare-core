@@ -93,12 +93,15 @@ float sampleVolumetricCloudDensity(vec3 p, float height01)
 	float shape_period = max(100.0, cloud_settings_1.x);
 	float detail_period = max(50.0, cloud_settings_1.y);
 	float wind_offset = time * cloud_settings_1.z;
+	vec2 wind_dir = cloud_settings_3.xy;
+	wind_dir /= max(length(wind_dir), 0.001);
+	vec2 wind_perp = vec2(-wind_dir.y, wind_dir.x);
 
-	vec2 shape_uv = (p.xy + vec2(wind_offset, wind_offset * 0.35)) / shape_period;
+	vec2 shape_uv = (p.xy + wind_offset * wind_dir) / shape_period;
 	shape_uv += vec2(2.3453, 1.4354);
 	float shape = fbmMix(shape_uv, fbm_tex) * 0.5 + 0.5;
 
-	vec2 detail_uv = (p.xy + vec2(wind_offset * 1.7, -wind_offset * 0.8)) / detail_period;
+	vec2 detail_uv = (p.xy + wind_offset * (1.7 * wind_dir - 0.8 * wind_perp)) / detail_period;
 	detail_uv += vec2(p.z / detail_period * 0.35);
 	float detail = fbmMix(detail_uv, fbm_tex) * 0.5 + 0.5;
 
@@ -144,6 +147,7 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 	float view_sun = max(0.0, dot(ray_dir_ws, sundir_ws.xyz));
 	float bottom_darkness = clamp(cloud_settings_2.x, 0.0, 1.0);
 	float horizon_fade = clamp(cloud_settings_2.z, 0.0, 1.0);
+	float scattering_scale = max(0.0, cloud_settings_3.z);
 	float horizon_angle = radians(12.0);
 	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(horizon_angle)), ray_dir_ws.z);
 	float horizon_visibility = mix(1.0, horizon_view_factor, horizon_fade);
@@ -161,7 +165,7 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 			float segment_alpha = 1.0 - segment_transmittance;
 			float silver_lining = pow(view_sun, 6.0) * (1.0 - height01 * 0.45);
 			float underside_shadow = mix(1.0 - bottom_darkness * 0.78, 1.0, smoothstep(0.05, 0.55, height01));
-			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4) * underside_shadow;
+			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4) * underside_shadow * scattering_scale;
 			scattered += transmittance * segment_alpha * cloud_light;
 			transmittance *= segment_transmittance;
 			if(transmittance < 0.01)

@@ -14,6 +14,7 @@ layout (std140) uniform MaterialCommonUniforms
 	vec4 cloud_settings_0; // (bottom_z, top_z, coverage, density)
 	vec4 cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
 	vec4 cloud_settings_2; // (bottom_darkness, edge_softness, horizon_fade, padding)
+	vec4 cloud_settings_3; // (wind_dir_x, wind_dir_y, scattering_scale, water_reflection_strength)
 	vec4 mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

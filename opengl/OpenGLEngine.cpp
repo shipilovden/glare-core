@@ -7200,6 +7200,13 @@ void OpenGLEngine::draw()
 		this->current_scene->volumetric_cloud_settings.horizon_fade,
 		0.f
 	);
+	const float wind_direction_rad = this->current_scene->volumetric_cloud_settings.wind_direction_deg * (Maths::pi<float>() / 180.f);
+	common_uniforms.cloud_settings_3 = Vec4f(
+		std::cos(wind_direction_rad),
+		std::sin(wind_direction_rad),
+		this->current_scene->volumetric_cloud_settings.scattering_scale,
+		this->current_scene->volumetric_cloud_settings.water_reflection_strength
+	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;
 	common_uniforms.far_clip_dist = this->current_scene->max_draw_dist;

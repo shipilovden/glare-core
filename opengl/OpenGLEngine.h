@@ -93,7 +93,8 @@ struct VolumetricCloudSettings
 	VolumetricCloudSettings()
 	: bottom_z(1000.f), top_z(2200.f), coverage(0.48f), density(0.055f),
 		shape_period(10000.f), detail_period(1200.f), wind_speed(20.f), max_march_dist(40000.f),
-		bottom_darkness(0.4f), edge_softness(0.55f), horizon_fade(0.75f)
+		bottom_darkness(0.4f), edge_softness(0.55f), horizon_fade(0.75f),
+		wind_direction_deg(20.f), scattering_scale(1.f), water_reflection_strength(0.65f)
 	{}
 
 	float bottom_z;
@@ -107,6 +108,9 @@ struct VolumetricCloudSettings
 	float bottom_darkness;
 	float edge_softness;
 	float horizon_fade;
+	float wind_direction_deg;
+	float scattering_scale;
+	float water_reflection_strength;
 };
 
 
@@ -849,6 +853,7 @@ struct MaterialCommonUniforms
 	Vec4f cloud_settings_0; // (bottom_z, top_z, coverage, density)
 	Vec4f cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
 	Vec4f cloud_settings_2; // (bottom_darkness, edge_softness, horizon_fade, padding)
+	Vec4f cloud_settings_3; // (wind_dir_x, wind_dir_y, scattering_scale, water_reflection_strength)
 	Vec4f mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

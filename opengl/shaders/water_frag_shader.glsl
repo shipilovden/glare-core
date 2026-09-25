@@ -98,12 +98,81 @@ layout(location = 1) out vec3 normal_out;
 #define M2 3812015801U     //140473*2467*11
 float hash( uvec2 q )
 {
-	q *= uvec2(M1, M2); 
+	q *= uvec2(M1, M2);
 
 	uint n = (q.x ^ q.y) * M1;
 
 	return float(n) * (1.0/float(0xffffffffU));
 }
+
+
+#if VOLUMETRIC_CLOUDS
+float sampleVolumetricCloudDensityForWater(vec3 p, float height01)
+{
+	float shape_period = max(100.0, cloud_settings_1.x);
+	float detail_period = max(50.0, cloud_settings_1.y);
+	float wind_offset = time * cloud_settings_1.z;
+	vec2 wind_dir = cloud_settings_3.xy;
+	wind_dir /= max(length(wind_dir), 0.001);
+	vec2 wind_perp = vec2(-wind_dir.y, wind_dir.x);
+
+	vec2 shape_uv = (p.xy + wind_offset * wind_dir) / shape_period + vec2(2.3453, 1.4354);
+	float shape = fbmMix(shape_uv, fbm_tex) * 0.5 + 0.5;
+	vec2 detail_uv = (p.xy + wind_offset * (1.7 * wind_dir - 0.8 * wind_perp)) / detail_period;
+	detail_uv += vec2(p.z / detail_period * 0.35);
+	float detail = fbmMix(detail_uv, fbm_tex) * 0.5 + 0.5;
+
+	float edge_softness = clamp(cloud_settings_2.y, 0.0, 1.0);
+	float base_fade = mix(0.06, 0.22, edge_softness);
+	float top_fade_start = mix(0.76, 0.58, edge_softness);
+	float vertical_shape = smoothstep(0.0, base_fade, height01) *
+		(1.0 - smoothstep(top_fade_start, 1.0, height01));
+	float coverage = clamp(cloud_settings_0.z, 0.02, 0.98);
+	float weather = shape + (detail - 0.5) * 0.30;
+	float edge_width = mix(0.035, 0.20, edge_softness);
+	return smoothstep(coverage - edge_width * 0.65, coverage + edge_width, weather) * vertical_shape;
+}
+
+
+float volumetricCloudReflectionFactor(vec3 origin_ws, vec3 ray_dir_ws)
+{
+	if(ray_dir_ws.z <= 0.001)
+		return 0.0;
+
+	float bottom_z = min(cloud_settings_0.x, cloud_settings_0.y - 1.0);
+	float top_z = max(cloud_settings_0.y, bottom_z + 1.0);
+	float ray_start = max(0.0, (bottom_z - origin_ws.z) / ray_dir_ws.z);
+	float ray_end = (top_z - origin_ws.z) / ray_dir_ws.z;
+	float max_dist = max(100.0, cloud_settings_1.w);
+	if(ray_end <= ray_start)
+		return 0.0;
+	ray_end = min(ray_end, ray_start + max_dist);
+
+	const int NUM_STEPS = 24;
+	float step_len = (ray_end - ray_start) / float(NUM_STEPS);
+	float ray_t = ray_start + texture(blue_noise_tex, gl_FragCoord.xy * (1.0 / 64.0)).x * step_len;
+	float transmittance = 1.0;
+	float reflected_cloud = 0.0;
+	float density_scale = max(0.0, cloud_settings_0.w);
+	for(int i = 0; i < NUM_STEPS; ++i)
+	{
+		vec3 p = origin_ws + ray_dir_ws * ray_t;
+		float height01 = clamp((p.z - bottom_z) / (top_z - bottom_z), 0.0, 1.0);
+		float density = sampleVolumetricCloudDensityForWater(p, height01) * density_scale;
+		float segment_transmittance = exp(-density * step_len);
+		float segment_alpha = 1.0 - segment_transmittance;
+		reflected_cloud += transmittance * segment_alpha;
+		transmittance *= segment_transmittance;
+		if(transmittance < 0.01)
+			break;
+		ray_t += step_len;
+	}
+
+	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(radians(12.0))), ray_dir_ws.z);
+	float horizon_visibility = mix(1.0, horizon_view_factor, clamp(cloud_settings_2.z, 0.0, 1.0));
+	return clamp(reflected_cloud * horizon_visibility, 0.0, 1.0);
+}
+#endif
 
 // 'A Survey of Efficient Representations for Independent Unit Vectors', listing 1+2.
 // Returns +- 1
@@ -683,15 +752,27 @@ void main()
 
 
 			//-------------- clouds ---------------------
-			vec2 cloudfrac_cumulus_edge = getCloudFrac(pos_ws, reflected_dir_ws, time, fbm_tex, cirrus_tex);
-			float cloudfrac    = cloudfrac_cumulus_edge.x;
-			float cumulus_edge = cloudfrac_cumulus_edge.y;
-
 			vec3 cloudcol = sun_and_sky_av_spec_rad.xyz;
+			#if VOLUMETRIC_CLOUDS
+			if((mat_common_flags & VOLUMETRIC_CLOUDS_FLAG) != 0)
+			{
+				float cloudfrac = volumetricCloudReflectionFactor(pos_ws, reflected_dir_ws);
+				float cloud_reflection_strength = clamp(cloud_settings_3.w, 0.0, 1.0);
+				spec_refl_light = mix(spec_refl_light, cloudcol, cloudfrac * cloud_reflection_strength);
+			}
+			else
+			{
+			#endif
+			vec2 cloudfrac_cumulus_edge = getCloudFrac(pos_ws, reflected_dir_ws, time, fbm_tex, cirrus_tex);
+			float cloudfrac = cloudfrac_cumulus_edge.x;
+			float cumulus_edge = cloudfrac_cumulus_edge.y;
 			spec_refl_light = mix(spec_refl_light, cloudcol, max(0.f, cloudfrac));
 			vec3 suncloudcol = cloudcol * 2.5;
 			float blend = max(0.f, cumulus_edge) * pow(max(0.0, d), 32.0);// smoothstep(0.9, 0.9999892083461507, d);
 			spec_refl_light = mix(spec_refl_light, suncloudcol, blend);
+			#if VOLUMETRIC_CLOUDS
+			}
+			#endif
 		}
 		//----------------------------------------------------------------
 
