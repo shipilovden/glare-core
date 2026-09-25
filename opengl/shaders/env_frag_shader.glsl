@@ -57,7 +57,7 @@ float innerEvalSlightlyJittered(vec2 p, uint seed)
 
 
 float evalStarfield(vec2 p, uint seed)
-{   
+{
     vec2 dcoords_dx = dFdx(p);
     vec2 dcoords_dy = dFdy(p);
 
@@ -81,6 +81,87 @@ float evalStarfield(vec2 p, uint seed)
 
     return v;
 }
+
+
+#if VOLUMETRIC_CLOUDS
+// A compact 2.5D density field.  The existing FBM texture is sampled at two
+// different world-space frequencies and with a height-dependent erosion term,
+// which gives the sky ray a genuinely volumetric result without allocating a
+// second render pass or a 3D noise texture.
+float sampleVolumetricCloudDensity(vec3 p, float height01)
+{
+	float shape_period = max(100.0, cloud_settings_1.x);
+	float detail_period = max(50.0, cloud_settings_1.y);
+	float wind_offset = time * cloud_settings_1.z;
+
+	vec2 shape_uv = (p.xy + vec2(wind_offset, wind_offset * 0.35)) / shape_period;
+	shape_uv += vec2(2.3453, 1.4354);
+	float shape = fbmMix(shape_uv, fbm_tex) * 0.5 + 0.5;
+
+	vec2 detail_uv = (p.xy + vec2(wind_offset * 1.7, -wind_offset * 0.8)) / detail_period;
+	detail_uv += vec2(p.z / detail_period * 0.35);
+	float detail = fbmMix(detail_uv, fbm_tex) * 0.5 + 0.5;
+
+	// Cumulus clouds are soft at the base and break up towards the top.
+	float vertical_shape = smoothstep(0.0, 0.12, height01) * (1.0 - smoothstep(0.68, 1.0, height01));
+	float coverage = clamp(cloud_settings_0.z, 0.02, 0.98);
+	float weather = shape + (detail - 0.5) * 0.30;
+	float cloud = smoothstep(coverage - 0.08, coverage + 0.14, weather);
+	return cloud * vertical_shape;
+}
+
+
+vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
+{
+	// The layer is above the world.  Looking down or exactly along the horizon
+	// must leave the ordinary sky path untouched.
+	if(ray_dir_ws.z <= 0.001)
+		return sky_col;
+
+	float bottom_z = min(cloud_settings_0.x, cloud_settings_0.y - 1.0);
+	float top_z = max(cloud_settings_0.y, bottom_z + 1.0);
+	float ray_start = max(0.0, (bottom_z - campos_ws.z) / ray_dir_ws.z);
+	float ray_end = (top_z - campos_ws.z) / ray_dir_ws.z;
+	float max_dist = max(100.0, cloud_settings_1.w);
+	if(ray_end <= ray_start)
+		return sky_col;
+	ray_end = min(ray_end, ray_start + max_dist);
+
+	const int NUM_STEPS = 40;
+	float step_len = (ray_end - ray_start) / float(NUM_STEPS);
+	float blue_noise = texture(blue_noise_tex, gl_FragCoord.xy * (1.0 / 64.0)).x;
+	float ray_t = ray_start + blue_noise * step_len;
+	float transmittance = 1.0;
+	vec3 scattered = vec3(0.0);
+	float density_scale = max(0.0, cloud_settings_0.w);
+	float sun_height = 0.55 + 0.45 * max(0.0, sundir_ws.z);
+	float view_sun = max(0.0, dot(ray_dir_ws, sundir_ws.xyz));
+
+	for(int i = 0; i < NUM_STEPS; ++i)
+	{
+		vec3 p = campos_ws + ray_dir_ws * ray_t;
+		float height01 = clamp((p.z - bottom_z) / (top_z - bottom_z), 0.0, 1.0);
+		float density = sampleVolumetricCloudDensity(p, height01) * density_scale;
+
+		if(density > 0.00001)
+		{
+			float optical_depth = density * step_len;
+			float segment_transmittance = exp(-optical_depth);
+			float segment_alpha = 1.0 - segment_transmittance;
+			float silver_lining = pow(view_sun, 6.0) * (1.0 - height01 * 0.45);
+			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4);
+			scattered += transmittance * segment_alpha * cloud_light;
+			transmittance *= segment_transmittance;
+			if(transmittance < 0.01)
+				break;
+		}
+
+		ray_t += step_len;
+	}
+
+	return vec4(sky_col.rgb * transmittance + scattered, sky_col.a);
+}
+#endif
 
 
 void main()
@@ -173,10 +254,17 @@ void main()
 	float cloudfrac    = cloudfrac_cumulus_edge.x;
 	float cumulus_edge = cloudfrac_cumulus_edge.y;
 	vec4 cloudcol = sun_and_sky_av_spec_rad;
-	col = mix(col, cloudcol, max(0.f, cloudfrac));
-	vec4 suncloudcol = cloudcol * 2.5;
-	float blend = max(0.f, cumulus_edge) * pow(max(0.0, d), 32.0);// smoothstep(0.9, 0.9999892083461507, d);
-	col = mix(col, suncloudcol, blend);
+#if VOLUMETRIC_CLOUDS
+	if((mat_common_flags & VOLUMETRIC_CLOUDS_FLAG) != 0)
+		col = raymarchVolumetricClouds(env_campos_ws, normalize(dir_ws), col);
+	else
+#endif
+	{
+		col = mix(col, cloudcol, max(0.f, cloudfrac));
+		vec4 suncloudcol = cloudcol * 2.5;
+		float blend = max(0.f, cumulus_edge) * pow(max(0.0, d), 32.0);// smoothstep(0.9, 0.9999892083461507, d);
+		col = mix(col, suncloudcol, blend);
+	}
 
 	//col = mix(col, cumulus_col, cumulus_alpha);
 

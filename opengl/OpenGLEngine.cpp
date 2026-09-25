@@ -102,6 +102,7 @@ Copyright Glare Technologies Limited 2023 -
 #define CLOUD_SHADOWS_FLAG					1
 #define DO_SSAO_FLAG						2
 #define DOING_SSAO_PREPASS_FLAG				4
+#define VOLUMETRIC_CLOUDS_FLAG			8
 
 
 #define OVERLAY_HAVE_TEXTURE_FLAG			1
@@ -347,6 +348,7 @@ OpenGLScene::OpenGLScene(OpenGLEngine& engine)
 	draw_aurora = false;
 	render_to_main_render_framebuffer = engine.settings.render_to_offscreen_renderbuffers;
 	cloud_shadows = true;
+	draw_volumetric_clouds = engine.settings.volumetric_clouds_support;
 
 	env_ob = engine.allocateObject();
 	env_ob->ob_to_world_matrix = Matrix4f::identity();
@@ -2119,6 +2121,7 @@ void OpenGLEngine::initialise(const std::string& data_dir_, Reference<TextureSer
 		preprocessor_defines += "#define RENDER_SKY_AND_CLOUD_REFLECTIONS " + (settings.render_sun_and_clouds ? std::string("1") : std::string("0")) + "\n";
 		preprocessor_defines += "#define RENDER_SUN_AND_SKY " + (settings.render_sun_and_clouds ? std::string("1") : std::string("0")) + "\n";
 		preprocessor_defines += "#define RENDER_CLOUD_SHADOWS " + (settings.render_sun_and_clouds ? std::string("1") : std::string("0")) + "\n";
+		preprocessor_defines += "#define VOLUMETRIC_CLOUDS " + (settings.volumetric_clouds_support ? std::string("1") : std::string("0")) + "\n";
 		preprocessor_defines += "#define UNDERWATER_CAUSTICS " + (settings.render_water_caustics ? std::string("1") : std::string("0")) + "\n";
 		preprocessor_defines += "#define DRAW_AURORA " + (draw_aurora ? std::string("1") : std::string("0")) + "\n";
 
@@ -7179,6 +7182,18 @@ void OpenGLEngine::draw()
 		this->current_scene->fog_settings.layer_1_A,
 		this->current_scene->fog_settings.layer_1_B
 	);
+	common_uniforms.cloud_settings_0 = Vec4f(
+		this->current_scene->volumetric_cloud_settings.bottom_z,
+		this->current_scene->volumetric_cloud_settings.top_z,
+		this->current_scene->volumetric_cloud_settings.coverage,
+		this->current_scene->volumetric_cloud_settings.density
+	);
+	common_uniforms.cloud_settings_1 = Vec4f(
+		this->current_scene->volumetric_cloud_settings.shape_period,
+		this->current_scene->volumetric_cloud_settings.detail_period,
+		this->current_scene->volumetric_cloud_settings.wind_speed,
+		this->current_scene->volumetric_cloud_settings.max_march_dist
+	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;
 	common_uniforms.far_clip_dist = this->current_scene->max_draw_dist;
@@ -7188,7 +7203,8 @@ void OpenGLEngine::draw()
 	common_uniforms.env_phi = this->sun_phi;
 	common_uniforms.water_level_z = this->current_scene->water_level_z;
 	common_uniforms.camera_type = (int)this->current_scene->camera_type;
-	common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) | (this->settings.ssao ? DO_SSAO_FLAG : 0);
+	common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) | (this->settings.ssao ? DO_SSAO_FLAG : 0) |
+		(this->current_scene->draw_volumetric_clouds && this->settings.volumetric_clouds_support ? VOLUMETRIC_CLOUDS_FLAG : 0);
 	common_uniforms.shadow_map_samples_xy_scale = this->shadow_mapping ? (2048.f / this->shadow_mapping->dynamic_w) : 1.f; // Shadow map sample pattern is scaled for 2048^2 textures.
 	common_uniforms.padding_a1 = common_uniforms.padding_a2 = 0;
 	this->material_common_uniform_buf_ob->updateData(/*dest offset=*/0, &common_uniforms, sizeof(MaterialCommonUniforms));
@@ -7611,7 +7627,9 @@ void OpenGLEngine::draw()
 
 	if(settings.ssao)
 	{
-		common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) | DOING_SSAO_PREPASS_FLAG; // Disable reading from SSAO output texture (DO_SSAO_FLAG) for the prepass, set DOING_SSAO_PREPASS_FLAG.
+		common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) |
+			(this->current_scene->draw_volumetric_clouds && this->settings.volumetric_clouds_support ? VOLUMETRIC_CLOUDS_FLAG : 0) |
+			DOING_SSAO_PREPASS_FLAG; // Disable reading from SSAO output texture (DO_SSAO_FLAG) for the prepass, set DOING_SSAO_PREPASS_FLAG.
 		this->material_common_uniform_buf_ob->updateData(/*dest offset=*/0, &common_uniforms, sizeof(MaterialCommonUniforms));
 
 		// drawDepthPrePass(view_matrix, proj_matrix);
@@ -7620,7 +7638,9 @@ void OpenGLEngine::draw()
 		computeSSAO(proj_matrix);
 
 		// Restore flags
-		common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) | ((this->settings.ssao && show_ssao) ? DO_SSAO_FLAG : 0);
+		common_uniforms.mat_common_flags = (this->current_scene->cloud_shadows ? CLOUD_SHADOWS_FLAG : 0) |
+			(this->current_scene->draw_volumetric_clouds && this->settings.volumetric_clouds_support ? VOLUMETRIC_CLOUDS_FLAG : 0) |
+			((this->settings.ssao && show_ssao) ? DO_SSAO_FLAG : 0);
 		this->material_common_uniform_buf_ob->updateData(/*dest offset=*/0, &common_uniforms, sizeof(MaterialCommonUniforms));
 	}
 

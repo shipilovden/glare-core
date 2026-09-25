@@ -85,6 +85,27 @@ struct FogSettings
 };
 
 
+// Runtime controls for the lightweight volumetric cumulus raymarch used by the
+// environment shader.  These values are deliberately kept in the scene so the
+// client can update them immediately without rebuilding OpenGL programs.
+struct VolumetricCloudSettings
+{
+	VolumetricCloudSettings()
+	: bottom_z(1000.f), top_z(2200.f), coverage(0.48f), density(0.055f),
+		shape_period(10000.f), detail_period(1200.f), wind_speed(20.f), max_march_dist(40000.f)
+	{}
+
+	float bottom_z;
+	float top_z;
+	float coverage;
+	float density;
+	float shape_period;
+	float detail_period;
+	float wind_speed;
+	float max_march_dist;
+};
+
+
 struct OpenGLUniformVal // variant class
 {
 	OpenGLUniformVal() {}
@@ -494,7 +515,7 @@ public:
 
 	OpenGLEngineSettings() : enable_debug_output(false), shadow_mapping(false), shadow_mapping_detail(ShadowMappingDetail_medium), compress_textures(false), render_to_offscreen_renderbuffers(true), screenspace_refl_and_refr(true), depth_fog(false), render_sun_and_clouds(true), render_water_caustics(true), 
 		max_tex_CPU_mem_usage(1024 * 1024 * 1024ull), max_tex_GPU_mem_usage(1024 * 1024 * 1024ull), use_grouped_vbo_allocator(true), msaa_samples(4), allow_bindless_textures(true), 
-		allow_multi_draw_indirect(true), use_multiple_phong_uniform_bufs(false), ssao_support(true), ssao(false) {}
+		allow_multi_draw_indirect(true), use_multiple_phong_uniform_bufs(false), ssao_support(true), ssao(false), volumetric_clouds_support(false) {}
 
 	bool enable_debug_output;
 	bool shadow_mapping;
@@ -520,6 +541,9 @@ public:
 
 	bool ssao_support; // Should shaders be compiled with SSAO support?
 	bool ssao; // Should SSAO be enabled? Can be toggled at runtime.
+	// Compile the volumetric cloud path into the environment shader.  The
+	// actual draw state is controlled at runtime by OpenGLScene.
+	bool volumetric_clouds_support;
 };
 
 
@@ -598,6 +622,8 @@ public:
 	bool collect_stats; // Typically we are only interested in render stats for the main scene.
 
 	bool cloud_shadows; // True by default
+	bool draw_volumetric_clouds; // Runtime toggle for the volumetric cloud raymarch.
+	VolumetricCloudSettings volumetric_cloud_settings;
 
 	float bloom_strength; // [0-1].  Strength 0 turns off bloom.  0 by default.
 
@@ -816,6 +842,8 @@ struct MaterialCommonUniforms
 	Vec4f sun_and_sky_av_spec_rad; // spectral rad * 1.0e-9
 	Vec4f air_scattering_coeffs;
 	Vec4f fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
+	Vec4f cloud_settings_0; // (bottom_z, top_z, coverage, density)
+	Vec4f cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
 	Vec4f mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

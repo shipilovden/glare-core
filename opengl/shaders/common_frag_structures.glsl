@@ -11,6 +11,8 @@ layout (std140) uniform MaterialCommonUniforms
 	vec4 sun_and_sky_av_spec_rad;
 	vec4 air_scattering_coeffs;
 	vec4 fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
+	vec4 cloud_settings_0; // (bottom_z, top_z, coverage, density)
+	vec4 cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
 	vec4 mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;
@@ -34,6 +36,7 @@ layout (std140) uniform MaterialCommonUniforms
 #define CLOUD_SHADOWS_FLAG					1
 #define DO_SSAO_FLAG						2
 #define DOING_SSAO_PREPASS_FLAG				4
+#define VOLUMETRIC_CLOUDS_FLAG			8
 
 
 float fogLayerDensityIntegral(float cam_z, float frag_z, float dist, float A, float B)
