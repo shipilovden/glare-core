@@ -93,8 +93,7 @@ struct VolumetricCloudSettings
 	VolumetricCloudSettings()
 	: bottom_z(1000.f), top_z(2200.f), coverage(0.48f), density(0.055f),
 		shape_period(10000.f), detail_period(1200.f), wind_speed(20.f), max_march_dist(40000.f),
-		bottom_darkness(0.4f), edge_softness(0.55f), horizon_fade(0.75f),
-		wind_direction_deg(20.f), scattering_scale(1.f), water_reflection_strength(0.65f)
+		edge_softness(0.55f), horizon_fade(0.75f), wind_direction_deg(20.f)
 	{}
 
 	float bottom_z;
@@ -105,12 +104,43 @@ struct VolumetricCloudSettings
 	float detail_period;
 	float wind_speed;
 	float max_march_dist;
-	float bottom_darkness;
 	float edge_softness;
 	float horizon_fade;
 	float wind_direction_deg;
+};
+
+
+struct CloudLightingSettings
+{
+	CloudLightingSettings()
+	: direct_sun_strength(1.f), sky_light_strength(1.f), sunset_response(1.f), ground_contribution(0.18f),
+		ground_albedo(0.35f, 0.32f, 0.28f), phase_g(0.55f), phase_blend(0.2f),
+		multi_scattering(0.25f), underside_darkness(0.4f), scattering_scale(1.f)
+	{}
+
+	float direct_sun_strength;
+	float sky_light_strength;
+	float sunset_response;
+	float ground_contribution;
+	Colour3f ground_albedo;
+	float phase_g;
+	float phase_blend;
+	float multi_scattering;
+	float underside_darkness;
 	float scattering_scale;
-	float water_reflection_strength;
+};
+
+
+struct WaterReflectionSettings
+{
+	WaterReflectionSettings()
+	: cloud_reflection_enabled(true), cloud_reflection_strength(0.65f), cloud_reflection_samples(24.f), cloud_reflection_fade(0.75f)
+	{}
+
+	bool cloud_reflection_enabled;
+	float cloud_reflection_strength;
+	float cloud_reflection_samples;
+	float cloud_reflection_fade;
 };
 
 
@@ -632,6 +662,8 @@ public:
 	bool cloud_shadows; // True by default
 	bool draw_volumetric_clouds; // Runtime toggle for the volumetric cloud raymarch.
 	VolumetricCloudSettings volumetric_cloud_settings;
+	CloudLightingSettings cloud_lighting_settings;
+	WaterReflectionSettings water_reflection_settings;
 
 	float bloom_strength; // [0-1].  Strength 0 turns off bloom.  0 by default.
 
@@ -852,8 +884,12 @@ struct MaterialCommonUniforms
 	Vec4f fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
 	Vec4f cloud_settings_0; // (bottom_z, top_z, coverage, density)
 	Vec4f cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
-	Vec4f cloud_settings_2; // (bottom_darkness, edge_softness, horizon_fade, padding)
-	Vec4f cloud_settings_3; // (wind_dir_x, wind_dir_y, scattering_scale, water_reflection_strength)
+	Vec4f cloud_settings_2; // (legacy padding, edge_softness, horizon_fade, padding)
+	Vec4f cloud_settings_3; // (wind_dir_x, wind_dir_y, padding, padding)
+	Vec4f cloud_lighting_0; // (direct_sun_strength, sky_light_strength, sunset_response, ground_contribution)
+	Vec4f cloud_lighting_1; // (ground_albedo.r, ground_albedo.g, ground_albedo.b, phase_g)
+	Vec4f cloud_lighting_2; // (phase_blend, multi_scattering, underside_darkness, scattering_scale)
+	Vec4f water_reflection_settings; // (enabled, strength, samples, horizon_fade)
 	Vec4f mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

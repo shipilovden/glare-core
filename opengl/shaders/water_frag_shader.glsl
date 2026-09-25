@@ -148,14 +148,17 @@ float volumetricCloudReflectionFactor(vec3 origin_ws, vec3 ray_dir_ws)
 		return 0.0;
 	ray_end = min(ray_end, ray_start + max_dist);
 
-	const int NUM_STEPS = 24;
-	float step_len = (ray_end - ray_start) / float(NUM_STEPS);
+	const int MAX_STEPS = 48;
+	int num_steps = int(clamp(water_reflection_settings.z, 8.0, float(MAX_STEPS)));
+	float step_len = (ray_end - ray_start) / float(num_steps);
 	float ray_t = ray_start + texture(blue_noise_tex, gl_FragCoord.xy * (1.0 / 64.0)).x * step_len;
 	float transmittance = 1.0;
 	float reflected_cloud = 0.0;
 	float density_scale = max(0.0, cloud_settings_0.w);
-	for(int i = 0; i < NUM_STEPS; ++i)
+	for(int i = 0; i < MAX_STEPS; ++i)
 	{
+		if(i >= num_steps)
+			break;
 		vec3 p = origin_ws + ray_dir_ws * ray_t;
 		float height01 = clamp((p.z - bottom_z) / (top_z - bottom_z), 0.0, 1.0);
 		float density = sampleVolumetricCloudDensityForWater(p, height01) * density_scale;
@@ -169,7 +172,7 @@ float volumetricCloudReflectionFactor(vec3 origin_ws, vec3 ray_dir_ws)
 	}
 
 	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(radians(12.0))), ray_dir_ws.z);
-	float horizon_visibility = mix(1.0, horizon_view_factor, clamp(cloud_settings_2.z, 0.0, 1.0));
+	float horizon_visibility = mix(1.0, horizon_view_factor, clamp(water_reflection_settings.w, 0.0, 1.0));
 	return clamp(reflected_cloud * horizon_visibility, 0.0, 1.0);
 }
 #endif
@@ -756,9 +759,12 @@ void main()
 			#if VOLUMETRIC_CLOUDS
 			if((mat_common_flags & VOLUMETRIC_CLOUDS_FLAG) != 0)
 			{
-				float cloudfrac = volumetricCloudReflectionFactor(pos_ws, reflected_dir_ws);
-				float cloud_reflection_strength = clamp(cloud_settings_3.w, 0.0, 1.0);
-				spec_refl_light = mix(spec_refl_light, cloudcol, cloudfrac * cloud_reflection_strength);
+				if(water_reflection_settings.x > 0.5)
+				{
+					float cloudfrac = volumetricCloudReflectionFactor(pos_ws, reflected_dir_ws);
+					float cloud_reflection_strength = clamp(water_reflection_settings.y, 0.0, 1.0);
+					spec_refl_light = mix(spec_refl_light, cloudcol, cloudfrac * cloud_reflection_strength);
+				}
 			}
 			else
 			{

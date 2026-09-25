@@ -120,6 +120,43 @@ float sampleVolumetricCloudDensity(vec3 p, float height01)
 }
 
 
+float henyeyGreensteinPhase(float cos_theta, float g)
+{
+	float g2 = g * g;
+	float denominator = pow(max(0.001, 1.0 + g2 - 2.0 * g * cos_theta), 1.5);
+	return (1.0 - g2) / (4.0 * 3.14159265 * denominator);
+}
+
+
+float cloudLightTransmittance(vec3 p, vec3 sun_dir, float bottom_z, float top_z, float density_scale)
+{
+	if(sun_dir.z <= 0.001)
+		return 0.18;
+
+	float distance_to_top = max(0.0, (top_z - p.z) / sun_dir.z);
+	if(distance_to_top <= 0.0)
+		return 1.0;
+
+	// A short secondary march captures self-shadowing and silver lining while
+	// keeping the cost bounded.  The main view march remains the expensive path.
+	const int LIGHT_STEPS = 4;
+	float light_step_len = min(2500.0, max(80.0, distance_to_top / float(LIGHT_STEPS)));
+	float light_transmittance = 1.0;
+	for(int i = 0; i < LIGHT_STEPS; ++i)
+	{
+		vec3 light_p = p + sun_dir * (float(i) + 0.5) * light_step_len;
+		if(light_p.z > top_z)
+			break;
+		float light_height01 = clamp((light_p.z - bottom_z) / (top_z - bottom_z), 0.0, 1.0);
+		float light_density = sampleVolumetricCloudDensity(light_p, light_height01) * density_scale;
+		light_transmittance *= exp(-light_density * light_step_len * 1.1);
+		if(light_transmittance < 0.02)
+			return light_transmittance;
+	}
+	return light_transmittance;
+}
+
+
 vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 {
 	// The layer is above the world.  Looking down or exactly along the horizon
@@ -143,11 +180,25 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 	float transmittance = 1.0;
 	vec3 scattered = vec3(0.0);
 	float density_scale = max(0.0, cloud_settings_0.w);
-	float sun_height = 0.55 + 0.45 * max(0.0, sundir_ws.z);
-	float view_sun = max(0.0, dot(ray_dir_ws, sundir_ws.xyz));
-	float bottom_darkness = clamp(cloud_settings_2.x, 0.0, 1.0);
+	float view_sun = dot(normalize(ray_dir_ws), normalize(sundir_ws.xyz));
 	float horizon_fade = clamp(cloud_settings_2.z, 0.0, 1.0);
-	float scattering_scale = max(0.0, cloud_settings_3.z);
+	float scattering_scale = max(0.0, cloud_lighting_2.w);
+	float bottom_darkness = clamp(cloud_lighting_2.z, 0.0, 1.0);
+	float sun_above_horizon = smoothstep(-0.12, 0.12, sundir_ws.z);
+	vec3 sky_light = max(vec3(0.0), sun_and_sky_av_spec_rad.xyz) * max(0.0, cloud_lighting_0.y);
+	float sky_luminance = max(0.001, dot(sky_light, vec3(0.2126, 0.7152, 0.0722)));
+	vec3 direct_sun_radiance = max(vec3(0.0), sun_spec_rad_times_solid_angle.xyz / 0.00006780608);
+	float direct_sun_luminance = max(0.001, dot(direct_sun_radiance, vec3(0.2126, 0.7152, 0.0722)));
+	vec3 direct_sun_colour = direct_sun_radiance / direct_sun_luminance;
+	float sunset_factor = pow(1.0 - smoothstep(0.04, 0.65, max(0.0, sundir_ws.z)), 1.35) * max(0.0, cloud_lighting_0.z);
+	vec3 direct_sun_light = direct_sun_colour * sky_luminance *
+		(0.55 + 1.35 * sunset_factor) * max(0.0, cloud_lighting_0.x) * sun_above_horizon;
+	float phase_g = clamp(cloud_lighting_1.w, -0.85, 0.85);
+	float phase_blend = clamp(cloud_lighting_2.x, 0.0, 1.0);
+	float phase = mix(
+		henyeyGreensteinPhase(view_sun, phase_g),
+		henyeyGreensteinPhase(view_sun, -phase_g * 0.35),
+		phase_blend);
 	float horizon_angle = radians(12.0);
 	float horizon_view_factor = smoothstep(0.0, max(0.001, sin(horizon_angle)), ray_dir_ws.z);
 	float horizon_visibility = mix(1.0, horizon_view_factor, horizon_fade);
@@ -163,9 +214,15 @@ vec4 raymarchVolumetricClouds(vec3 campos_ws, vec3 ray_dir_ws, vec4 sky_col)
 			float optical_depth = density * step_len;
 			float segment_transmittance = exp(-optical_depth);
 			float segment_alpha = 1.0 - segment_transmittance;
-			float silver_lining = pow(view_sun, 6.0) * (1.0 - height01 * 0.45);
+			float light_transmittance = cloudLightTransmittance(p, normalize(sundir_ws.xyz), bottom_z, top_z, density_scale);
 			float underside_shadow = mix(1.0 - bottom_darkness * 0.78, 1.0, smoothstep(0.05, 0.55, height01));
-			vec3 cloud_light = sun_and_sky_av_spec_rad.xyz * (sun_height * 0.75 + 0.25 + silver_lining * 1.4) * underside_shadow * scattering_scale;
+			float lower_cloud_factor = (1.0 - height01) * (1.0 - height01);
+			vec3 ground_albedo = clamp(cloud_lighting_1.xyz, vec3(0.0), vec3(1.0));
+			vec3 ground_light = ground_albedo * sky_luminance * max(0.0, cloud_lighting_0.w) * lower_cloud_factor;
+			float multi_scattering = 1.0 + clamp(cloud_lighting_2.y, 0.0, 1.0) * (1.0 - light_transmittance) * 0.8;
+			vec3 cloud_light = sky_light * (0.55 + 0.45 * height01) +
+				direct_sun_light * phase * 4.0 * light_transmittance + ground_light;
+			cloud_light *= multi_scattering * underside_shadow * scattering_scale;
 			scattered += transmittance * segment_alpha * cloud_light;
 			transmittance *= segment_transmittance;
 			if(transmittance < 0.01)

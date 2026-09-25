@@ -7195,7 +7195,7 @@ void OpenGLEngine::draw()
 		this->current_scene->volumetric_cloud_settings.max_march_dist
 	);
 	common_uniforms.cloud_settings_2 = Vec4f(
-		this->current_scene->volumetric_cloud_settings.bottom_darkness,
+		0.f,
 		this->current_scene->volumetric_cloud_settings.edge_softness,
 		this->current_scene->volumetric_cloud_settings.horizon_fade,
 		0.f
@@ -7204,8 +7204,32 @@ void OpenGLEngine::draw()
 	common_uniforms.cloud_settings_3 = Vec4f(
 		std::cos(wind_direction_rad),
 		std::sin(wind_direction_rad),
-		this->current_scene->volumetric_cloud_settings.scattering_scale,
-		this->current_scene->volumetric_cloud_settings.water_reflection_strength
+		0.f,
+		0.f
+	);
+	common_uniforms.cloud_lighting_0 = Vec4f(
+		this->current_scene->cloud_lighting_settings.direct_sun_strength,
+		this->current_scene->cloud_lighting_settings.sky_light_strength,
+		this->current_scene->cloud_lighting_settings.sunset_response,
+		this->current_scene->cloud_lighting_settings.ground_contribution
+	);
+	common_uniforms.cloud_lighting_1 = Vec4f(
+		this->current_scene->cloud_lighting_settings.ground_albedo.r,
+		this->current_scene->cloud_lighting_settings.ground_albedo.g,
+		this->current_scene->cloud_lighting_settings.ground_albedo.b,
+		this->current_scene->cloud_lighting_settings.phase_g
+	);
+	common_uniforms.cloud_lighting_2 = Vec4f(
+		this->current_scene->cloud_lighting_settings.phase_blend,
+		this->current_scene->cloud_lighting_settings.multi_scattering,
+		this->current_scene->cloud_lighting_settings.underside_darkness,
+		this->current_scene->cloud_lighting_settings.scattering_scale
+	);
+	common_uniforms.water_reflection_settings = Vec4f(
+		this->current_scene->water_reflection_settings.cloud_reflection_enabled ? 1.f : 0.f,
+		this->current_scene->water_reflection_settings.cloud_reflection_strength,
+		this->current_scene->water_reflection_settings.cloud_reflection_samples,
+		this->current_scene->water_reflection_settings.cloud_reflection_fade
 	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;

@@ -13,8 +13,12 @@ layout (std140) uniform MaterialCommonUniforms
 	vec4 fog_settings; // (layer_0_A, layer_0_B, layer_1_A, layer_1_B)
 	vec4 cloud_settings_0; // (bottom_z, top_z, coverage, density)
 	vec4 cloud_settings_1; // (shape_period, detail_period, wind_speed, max_march_dist)
-	vec4 cloud_settings_2; // (bottom_darkness, edge_softness, horizon_fade, padding)
-	vec4 cloud_settings_3; // (wind_dir_x, wind_dir_y, scattering_scale, water_reflection_strength)
+	vec4 cloud_settings_2; // (legacy padding, edge_softness, horizon_fade, padding)
+	vec4 cloud_settings_3; // (wind_dir_x, wind_dir_y, padding, padding)
+	vec4 cloud_lighting_0; // (direct_sun_strength, sky_light_strength, sunset_response, ground_contribution)
+	vec4 cloud_lighting_1; // (ground_albedo.r, ground_albedo.g, ground_albedo.b, phase_g)
+	vec4 cloud_lighting_2; // (phase_blend, multi_scattering, underside_darkness, scattering_scale)
+	vec4 water_reflection_settings; // (enabled, strength, samples, horizon_fade)
 	vec4 mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;
