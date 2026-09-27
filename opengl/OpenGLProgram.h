@@ -29,6 +29,7 @@ struct UniformLocations
 	int specular_env_tex_location;
 	int lightmap_tex_location;
 	int fbm_tex_location;
+	int water_coast_tex_location = -1;
 	int cirrus_tex_location; // Just for water reflection of cirrus
 	int aurora_tex_location;
 	int ssao_tex_location;

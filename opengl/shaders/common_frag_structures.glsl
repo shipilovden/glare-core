@@ -19,6 +19,10 @@ layout (std140) uniform MaterialCommonUniforms
 	vec4 cloud_lighting_1; // (ground_albedo.r, ground_albedo.g, ground_albedo.b, phase_g)
 	vec4 cloud_lighting_2; // (phase_blend, multi_scattering, underside_darkness, scattering_scale)
 	vec4 water_reflection_settings; // (enabled, strength, samples, horizon_fade)
+	vec4 water_surface_settings_0; // (amplitude, wavelength, steepness, speed)
+	vec4 water_surface_settings_1; // (direction.x, direction.y, angular spread radians, secondary scale)
+	vec4 water_surface_settings_2; // (surf enabled, surf strength, shoreline width, foam scale)
+	vec4 water_surface_settings_3; // (foam speed, foam fade, padding, padding)
 	vec4 mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;
@@ -37,6 +41,105 @@ layout (std140) uniform MaterialCommonUniforms
 	mat4 frag_shadow_texture_matrix[5];
 };
 
+
+float surfNoise(vec2 p)
+{
+	vec2 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	vec4 h = fract(sin(vec4(dot(i, vec2(127.1, 311.7)), dot(i + vec2(1,0), vec2(127.1,311.7)),
+		dot(i + vec2(0,1), vec2(127.1,311.7)), dot(i + vec2(1,1), vec2(127.1,311.7)))) * 43758.5453);
+	return mix(mix(h.x, h.y, f.x), mix(h.z, h.w, f.x), f.y);
+}
+
+// Cellular films between bubbles, with large eroded gaps instead of solid
+// white value-noise blobs. Explicit footprint keeps this testable and stable
+// when the individual bubbles become smaller than a screen pixel.
+float surfFoamLace(vec2 p, float age, float footprint)
+{
+	vec2 warp = vec2(surfNoise(p*0.43), surfNoise(p*0.43+vec2(17.3,9.2)))-0.5;
+	vec2 q = p + warp*1.6;
+	float patches = surfNoise(q*0.62)*0.65 + surfNoise(q*1.51+vec2(3.2,7.1))*0.35;
+	vec2 cell = floor(q*3.5), local = fract(q*3.5);
+	float first = 8.0, second = 8.0;
+	for(int y=-1; y<=1; ++y) for(int x=-1; x<=1; ++x)
+	{
+		vec2 offset = vec2(x,y), id = cell+offset;
+		vec2 jitter = fract(sin(vec2(dot(id,vec2(127.1,311.7)),dot(id,vec2(269.5,183.3))))*43758.5453);
+		float d = length(offset+0.15+0.7*jitter-local);
+		if(d < first) { second=first; first=d; } else second=min(second,d);
+	}
+	float aa = clamp(footprint*3.5,0.015,0.3);
+	float films = 1.0-smoothstep(0.035,0.11+aa,second-first);
+	films = mix(films,0.3,smoothstep(0.15,0.5,footprint));
+	float erosion = mix(0.24,0.57,clamp(age,0.0,1.0));
+	float islands = smoothstep(erosion,erosion+0.2,patches);
+	return islands * mix(0.2+0.5*(1.0-age),1.0,films);
+}
+
+// Distance zero is the ACTUAL water/ground intersection, never a second
+// animated front. Width affects coverage behind the edge, not its position.
+// Terrain draws only fading residue after inundation; the water owns the head.
+vec2 coastalSurf(vec3 ground, float surface_z, bool residue_only)
+{
+	vec3 n = cross(dFdx(ground), dFdy(ground));
+	float slope = clamp(length(n.xy) / max(abs(n.z), 1.0e-8), 0.04, 4.0);
+	float width = max(0.1, water_surface_settings_2.z);
+	float dist = (ground.z - surface_z) / slope;
+	vec2 dir = normalize(water_surface_settings_1.xy);
+	float scale = max(0.05, water_surface_settings_2.w);
+	float drift = time * max(0.0, water_surface_settings_3.x) * max(0.0, water_surface_settings_0.w);
+	vec4 coast = waterCoastData(ground.xy);
+	float a = clamp(water_surface_settings_0.x, 0.0, 4.0) * 0.35;
+	float k = 6.28318530718 / max(4.0, water_surface_settings_0.y);
+	float phase = waterShorePhase(ground.xy, coast, dir, k,
+		sqrt(9.8*k)*max(0.0,water_surface_settings_0.w), time);
+	vec2 uphill = coast.yz / max(0.008, length(coast.yz));
+	float excursion = a * waterSwash(phase) / max(0.04, length(coast.yz));
+	vec2 transport = mix(dir * drift, uphill * excursion,
+		waterShoreWeight(coast,a));
+	vec2 uv = (ground.xy - transport) * scale;
+	float aa = max(0.025, fwidth(dist));
+	float head = waterContactFoam(dist, width, aa);
+	float fade = clamp(water_surface_settings_3.y, 0.0, 1.0);
+	float cycle = fract(-phase/6.28318530718);
+	float retreat = smoothstep(0.24,0.8,cycle);
+	float age = clamp(max(0.0,-dist)/width * 0.65 + retreat*0.35,0.0,1.0);
+	// Changing shape is tied to the wave phase; pausing waves also pauses erosion.
+	vec2 tangent = vec2(-uphill.y,uphill.x);
+	uv += tangent * sin(phase) * min(1.0,water_surface_settings_3.x)*0.18;
+	float footprint = length(fwidth(uv));
+	// No cellular search over open sea; derivatives are evaluated before the branch.
+	float bubbles = (dist > -width-aa && dist < aa) ? surfFoamLace(uv,age,footprint) : 0.0;
+	float patch_width = width * mix(0.55,1.0,surfNoise(uv*0.7));
+	float sheet = smoothstep(-patch_width,0.0,dist) * (1.0-smoothstep(0.0,aa,dist));
+	float foam = bubbles * (head*0.55 + sheet*mix(0.28,0.48,fade));
+	// Nothing is painted at the exact zero-thickness boundary. The porous
+	// front appears just inside the water, without a cut-out white outline.
+	foam *= smoothstep(0.0,max(0.06,aa),max(0.0,-dist));
+	float wet = 1.0 - smoothstep(0.0, 0.025, ground.z - surface_z);
+	if(residue_only)
+	{
+		// Sample the SAME waves a short time ago, so dry-sand foam requires
+		// recent inundation. No bright independent line during run-up/retreat.
+		float memory = 0.0;
+		for(int i = 1; i <= 3; ++i)
+		{
+			float age = float(i) * mix(0.18, 0.6, fade);
+			float previous_z = water_level_z + waterSurfaceHeight(ground.xy, water_surface_settings_0,
+				water_surface_settings_1, mat_common_campos_ws.xy, time - age);
+			float was_wet = 1.0 - smoothstep(-0.015, 0.015, ground.z - previous_z);
+			memory = max(memory, was_wet * exp(-float(i) * 0.75));
+		}
+		float dry = smoothstep(0.005, 0.04, ground.z - surface_z);
+		vec2 drainage_uv = vec2(dot(ground.xy-transport,tangent)*2.0,
+			dot(ground.xy-transport,uphill)*0.65)*scale;
+		float trails = surfFoamLace(drainage_uv,0.65+retreat*0.3,length(fwidth(drainage_uv)));
+		foam = memory * dry * trails * 0.32;
+		wet = max(wet, memory);
+	}
+	float energy = clamp(water_surface_settings_0.x * 2.0, 0.0, 1.0) * clamp(water_surface_settings_2.y, 0.0, 2.0);
+	return clamp(vec2(foam, wet) * energy, 0.0, 1.0);
+}
 
 // mat_common_flags values
 #define CLOUD_SHADOWS_FLAG					1

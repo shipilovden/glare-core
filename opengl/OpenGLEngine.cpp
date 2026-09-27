@@ -348,7 +348,7 @@ OpenGLScene::OpenGLScene(OpenGLEngine& engine)
 	draw_aurora = false;
 	render_to_main_render_framebuffer = engine.settings.render_to_offscreen_renderbuffers;
 	cloud_shadows = true;
-	draw_volumetric_clouds = engine.settings.volumetric_clouds_support;
+	draw_volumetric_clouds = false;
 
 	env_ob = engine.allocateObject();
 	env_ob->ob_to_world_matrix = Matrix4f::identity();
@@ -1533,6 +1533,7 @@ void OpenGLEngine::getUniformLocations(Reference<OpenGLProgram>& prog)
 	prog->uniform_locations.specular_env_tex_location		= prog->getUniformLocation("specular_env_tex");
 	prog->uniform_locations.lightmap_tex_location			= prog->getUniformLocation("lightmap_tex");
 	prog->uniform_locations.fbm_tex_location				= prog->getUniformLocation("fbm_tex");
+	prog->uniform_locations.water_coast_tex_location = prog->getUniformLocation("water_coast_tex");
 	prog->uniform_locations.cirrus_tex_location				= prog->getUniformLocation("cirrus_tex");
 	prog->uniform_locations.main_colour_texture_location	= prog->getUniformLocation("main_colour_texture");
 	prog->uniform_locations.main_normal_texture_location	= prog->getUniformLocation("main_normal_texture");
@@ -2639,10 +2640,12 @@ void OpenGLEngine::buildPrograms(const std::string& use_shader_dir)
 	this->frag_utils_glsl = FileUtils::readEntireFileTextMode(use_shader_dir + "/frag_utils.glsl");
 
 	this->preprocessor_defines_with_common_vert_structs = preprocessor_defines;
+	preprocessor_defines_with_common_vert_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/water_surface.glsl");
 	preprocessor_defines_with_common_vert_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/common_vert_structures.glsl");
 	preprocessor_defines_with_common_vert_structs += vert_utils_glsl;
 
 	this->preprocessor_defines_with_common_frag_structs = preprocessor_defines;
+	preprocessor_defines_with_common_frag_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/water_surface.glsl");
 	preprocessor_defines_with_common_frag_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/common_frag_structures.glsl");
 	preprocessor_defines_with_common_frag_structs += frag_utils_glsl;
 
@@ -6869,10 +6872,12 @@ void OpenGLEngine::draw()
 			this->frag_utils_glsl = FileUtils::readEntireFileTextMode(use_shader_dir + "/frag_utils.glsl");
 
 			this->preprocessor_defines_with_common_vert_structs = preprocessor_defines;
+			preprocessor_defines_with_common_vert_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/water_surface.glsl");
 			preprocessor_defines_with_common_vert_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/common_vert_structures.glsl");
 			preprocessor_defines_with_common_vert_structs += vert_utils_glsl;
 
 			this->preprocessor_defines_with_common_frag_structs = preprocessor_defines;
+			preprocessor_defines_with_common_frag_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/water_surface.glsl");
 			preprocessor_defines_with_common_frag_structs += FileUtils::readEntireFileTextMode(use_shader_dir + "/common_frag_structures.glsl");
 			preprocessor_defines_with_common_frag_structs += frag_utils_glsl;
 		}
@@ -7230,6 +7235,33 @@ void OpenGLEngine::draw()
 		this->current_scene->water_reflection_settings.cloud_reflection_strength,
 		this->current_scene->water_reflection_settings.cloud_reflection_samples,
 		this->current_scene->water_reflection_settings.cloud_reflection_fade
+	);
+	const WaterSurfaceSettings& water_surface = this->current_scene->water_surface_settings;
+	const float water_wave_direction_rad = water_surface.wave_direction_deg * (Maths::pi<float>() / 180.f);
+	const float water_wave_spread_rad = water_surface.wave_direction_spread_deg * (Maths::pi<float>() / 180.f);
+	common_uniforms.water_surface_settings_0 = Vec4f(
+		water_surface.wave_amplitude,
+		water_surface.wave_length,
+		water_surface.wave_steepness,
+		water_surface.wave_speed
+	);
+	common_uniforms.water_surface_settings_1 = Vec4f(
+		std::cos(water_wave_direction_rad),
+		std::sin(water_wave_direction_rad),
+		water_wave_spread_rad,
+		water_surface.secondary_wave_scale
+	);
+	common_uniforms.water_surface_settings_2 = Vec4f(
+		water_surface.surf_enabled ? 1.f : 0.f,
+		water_surface.surf_strength,
+		water_surface.shoreline_width,
+		water_surface.foam_scale
+	);
+	common_uniforms.water_surface_settings_3 = Vec4f(
+		water_surface.foam_speed,
+		water_surface.foam_fade,
+		0.f,
+		0.f
 	);
 	common_uniforms.mat_common_campos_ws = campos_ws;
 	common_uniforms.near_clip_dist = this->current_scene->near_draw_dist;
@@ -8961,7 +8993,17 @@ void OpenGLEngine::drawAlphaBlendedObjects(const Matrix4f& view_matrix, const Ma
 		
 
 		glEnable(GL_BLEND);
+		// Native default framebuffers ignore the colour alpha channel, but a
+		// WebGL canvas is composited by the browser using it.  Applying the
+		// regular blend factors to alpha makes every Gaussian layer reduce the
+		// canvas alpha and produces the white/washed-out splat appearance seen
+		// in the web client.  Keep source-over for RGB and accumulate alpha as
+		// an opaque world pass, matching the UI overlay path below.
+#if defined(EMSCRIPTEN)
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+#else
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+#endif
 		glDepthMask(GL_FALSE); // Disable writing to depth buffer - we don't want to occlude other transparent objects.
 
 		const Vec4f campos_ws = this->getCameraPositionWS();
@@ -10354,6 +10396,8 @@ void OpenGLEngine::computeSSAO(const Matrix4f& /*proj_matrix*/)
 
 			// unbind textures that aren't used by standard materials.
 			unbindTextureFromTextureUnit(*prepass_colour_copy_texture, PREPASS_COLOUR_COPY_TEXTURE_UNIT_INDEX);
+			bindTextureToTextureUnit(current_scene->water_coast_texture ? *current_scene->water_coast_texture : *dummy_black_tex,
+				PREPASS_COLOUR_COPY_TEXTURE_UNIT_INDEX);
 
 			// restore bindings
 			bindTextureToTextureUnit(*blurred_ssao_texture, /*texture_unit_index=*/SSAO_TEXTURE_UNIT_INDEX);
@@ -11107,6 +11151,9 @@ void OpenGLEngine::doSetStandardTextureUnitUniformsForBoundProgram(const OpenGLP
 	glUniform1i(program.uniform_locations.specular_env_tex_location, SPECULAR_ENV_TEXTURE_UNIT_INDEX);
 	glUniform1i(program.uniform_locations.blue_noise_tex_location, BLUE_NOISE_TEXTURE_UNIT_INDEX);
 	glUniform1i(program.uniform_locations.fbm_tex_location, FBM_TEXTURE_UNIT_INDEX);
+	// SSAO uses this unit only in its separate pass and binds it explicitly.
+	// Reuse it for bathymetry in material passes; stay within WebGL's 32 units.
+	glUniform1i(program.uniform_locations.water_coast_tex_location, PREPASS_COLOUR_COPY_TEXTURE_UNIT_INDEX);
 
 
 	glUniform1i(program.uniform_locations.lightmap_tex_location, LIGHTMAP_TEXTURE_UNIT_INDEX);
@@ -11218,8 +11265,8 @@ void OpenGLEngine::bindStandardTexturesToTextureUnits()
 	bindTextureToTextureUnit(blurred_ssao_texture ? *blurred_ssao_texture : *dummy_black_tex, /*texture_unit_index=*/SSAO_TEXTURE_UNIT_INDEX);
 	bindTextureToTextureUnit(blurred_ssao_specular_texture ? *blurred_ssao_specular_texture : *dummy_black_tex, /*texture_unit_index=*/SSAO_SPECULAR_TEXTURE_UNIT_INDEX);
 
-	//if(prepass_colour_copy_texture)
-	//	bindTextureToTextureUnit(*prepass_colour_copy_texture, PREPASS_COLOUR_COPY_TEXTURE_UNIT_INDEX);
+	bindTextureToTextureUnit(current_scene->water_coast_texture ? *current_scene->water_coast_texture : *dummy_black_tex,
+		PREPASS_COLOUR_COPY_TEXTURE_UNIT_INDEX);
 	if(prepass_normal_copy_texture)
 		bindTextureToTextureUnit(*prepass_normal_copy_texture, PREPASS_NORMAL_COPY_TEXTURE_UNIT_INDEX);
 	if(prepass_depth_copy_texture)

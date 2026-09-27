@@ -27,6 +27,7 @@ Copyright Glare Technologies Limited 2021 -
 #include "../graphics/Colour4f.h"
 #include "../graphics/BatchedMesh.h"
 #include <assert.h>
+#include <cmath>
 #include <vector>
 #include <map>
 #include <fstream>
@@ -1518,7 +1519,52 @@ static void processMaterial(GLTFData& data, GLTFMaterial& mat, const std::string
 }
 
 
-static void processAnimation(GLTFData& data, const GLTFAnimation& anim, const std::string& gltf_folder, const std::vector<int>& new_input_index, const std::vector<int>& new_output_index, 
+static void setAnimationNodeTransform(const GLTFNode& gltf_node, AnimationNodeData& anim_node, const bool preserve_matrix_for_animation)
+{
+	if(!preserve_matrix_for_animation || gltf_node.matrix == Matrix4f::identity())
+	{
+		// Preserve the existing TRS path exactly for the common case.
+		anim_node.trans = gltf_node.translation.toVec4fVector();
+		anim_node.rot   = gltf_node.rotation;
+		anim_node.scale = gltf_node.scale.toVec4fVector();
+	}
+	else
+	{
+		// glTF requires matrix and TRS to be mutually exclusive.  Match processNode() for malformed files too,
+		// so that the animation skeleton and the geometry loader use the same local transform.
+		const Matrix4f effective_local_transform = gltf_node.matrix *
+			Matrix4f::translationMatrix(gltf_node.translation.x, gltf_node.translation.y, gltf_node.translation.z) *
+			normalise(gltf_node.rotation).toMatrix() *
+			Matrix4f::scaleMatrix(gltf_node.scale.x, gltf_node.scale.y, gltf_node.scale.z);
+		checkProperty(
+			effective_local_transform.getRow(3) == Vec4f(0, 0, 0, 1) &&
+			effective_local_transform.getColumn(0).isFinite() && effective_local_transform.getColumn(1).isFinite() &&
+			effective_local_transform.getColumn(2).isFinite() && effective_local_transform.getColumn(3).isFinite(),
+			"glTF node matrix must be a finite affine transform for animation");
+
+		Matrix4f linear_transform = effective_local_transform;
+		linear_transform.setColumn(3, Vec4f(0, 0, 0, 1));
+
+		Matrix4f rotation_matrix, scale_and_shear_matrix;
+		if(!linear_transform.polarDecomposition(rotation_matrix, scale_and_shear_matrix))
+			throw glare::Exception("Could not decompose glTF node matrix for animation");
+
+		// AnimationData represents a TRS transform, so reject a matrix that cannot be represented without shear.
+		const float shear_eps = 1.0e-4f;
+		checkProperty(
+			std::fabs(scale_and_shear_matrix.elem(0, 1)) < shear_eps && std::fabs(scale_and_shear_matrix.elem(0, 2)) < shear_eps &&
+			std::fabs(scale_and_shear_matrix.elem(1, 0)) < shear_eps && std::fabs(scale_and_shear_matrix.elem(1, 2)) < shear_eps &&
+			std::fabs(scale_and_shear_matrix.elem(2, 0)) < shear_eps && std::fabs(scale_and_shear_matrix.elem(2, 1)) < shear_eps,
+			"glTF node matrix has shear, which is not supported for animation");
+
+		anim_node.trans = maskWToZero(effective_local_transform.getColumn(3));
+		anim_node.rot   = normalise(Quatf::fromMatrix(rotation_matrix));
+		anim_node.scale = Vec4f(scale_and_shear_matrix.elem(0, 0), scale_and_shear_matrix.elem(1, 1), scale_and_shear_matrix.elem(2, 2), 0);
+	}
+}
+
+
+static void processAnimation(GLTFData& data, const GLTFAnimation& anim, const std::string& gltf_folder, const std::vector<int>& new_input_index, const std::vector<int>& new_output_index,
 	AnimationData& anim_data_out, AnimationDatum& anim_datum_out)
 {
 	// conPrint("Processing anim " + anim.name + "...");
@@ -2506,9 +2552,8 @@ Reference<BatchedMesh> FormatDecoderGLTF::loadGivenJSON(JSONParser& parser, cons
 		batched_mesh_anim_data.nodes[i].parent_index = -1;
 		batched_mesh_anim_data.nodes[i].inverse_bind_matrix = Matrix4f::identity();
 
-		batched_mesh_anim_data.nodes[i].trans = data.nodes[i]->translation.toVec4fVector();
-		batched_mesh_anim_data.nodes[i].rot   = data.nodes[i]->rotation;
-		batched_mesh_anim_data.nodes[i].scale = data.nodes[i]->scale.toVec4fVector();
+		// Static meshes have their node transforms baked into the vertex data, so only the skinning path needs matrix preservation here.
+		setAnimationNodeTransform(*data.nodes[i], batched_mesh_anim_data.nodes[i], /*preserve_matrix_for_animation=*/!data.skins.empty());
 
 		batched_mesh_anim_data.nodes[i].name         = data.nodes[i]->name;
 	}
@@ -3720,6 +3765,9 @@ void FormatDecoderGLTF::test()
 			testAssert(mesh->animation_data.nodes.size() == 5);
 			testAssert(mesh->animation_data.joint_nodes.size() == 2); // Aka num bones.
 			testAssert(mesh->animation_data.animations.size() == 1);
+			const int bone_node_i = mesh->animation_data.getNodeIndex("Bone");
+			testAssert(bone_node_i >= 0);
+			testAssert(epsEqual(mesh->animation_data.getNodePositionModelSpace(bone_node_i, /*use_retarget_adjustment=*/false), Vec4f(-1.35972996e-7f, -4.1803298f, 0.f, 1.f), 1.0e-4f));
 
 			testWriting(mesh, data);
 		}

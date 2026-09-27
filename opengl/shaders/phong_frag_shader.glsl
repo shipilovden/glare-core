@@ -591,6 +591,18 @@ void main()
 	texcol += detail_2_texval * veg_weight; // TEMP disabled colour variation.    * colour_variation_factor * veg_weight;
 	texcol.w = 1.0;
 
+	// Limit historical wave sampling to the possible inundation band.
+	float coastal_height_bound = clamp(water_surface_settings_0.x, 0.0, 4.0) * 0.35 *
+		(1.0 + 0.45 * clamp(water_surface_settings_1.w, 0.0, 1.0));
+	if(water_surface_settings_2.x > 0.5 && abs(pos_ws.z - water_level_z) < coastal_height_bound + 0.04)
+	{
+		float surface_z = water_level_z + waterSurfaceHeight(pos_ws.xy, water_surface_settings_0,
+			water_surface_settings_1, mat_common_campos_ws.xy, time);
+		vec2 wash = coastalSurf(pos_ws, surface_z, true);
+		texcol.rgb *= mix(vec3(1.0), vec3(0.58, 0.65, 0.68), wash.y * 0.65);
+		texcol.rgb = mix(texcol.rgb, vec3(0.82, 0.88, 0.89), wash.x * 0.88);
+	}
+
 	refl_diffuse_col        = texcol;
 	direct_sun_diffuse_col  = texcol.xyz;
 #endif

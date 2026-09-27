@@ -134,13 +134,38 @@ struct CloudLightingSettings
 struct WaterReflectionSettings
 {
 	WaterReflectionSettings()
-	: cloud_reflection_enabled(true), cloud_reflection_strength(0.65f), cloud_reflection_samples(24.f), cloud_reflection_fade(0.75f)
+	: cloud_reflection_enabled(false), cloud_reflection_strength(0.65f), cloud_reflection_samples(24.f), cloud_reflection_fade(0.75f)
 	{}
 
 	bool cloud_reflection_enabled;
 	float cloud_reflection_strength;
 	float cloud_reflection_samples;
 	float cloud_reflection_fade;
+};
+
+
+struct WaterSurfaceSettings
+{
+	WaterSurfaceSettings()
+	: wave_amplitude(0.65f), wave_length(22.f), wave_steepness(0.28f), wave_speed(0.85f),
+		wave_direction_deg(68.4f), wave_direction_spread_deg(28.f), secondary_wave_scale(0.18f),
+		surf_enabled(false), surf_strength(1.05f), shoreline_width(2.4f), foam_scale(1.6f),
+		foam_speed(0.45f), foam_fade(0.68f)
+	{}
+
+	float wave_amplitude;
+	float wave_length;
+	float wave_steepness;
+	float wave_speed;
+	float wave_direction_deg;
+	float wave_direction_spread_deg;
+	float secondary_wave_scale;
+	bool surf_enabled;
+	float surf_strength;
+	float shoreline_width;
+	float foam_scale;
+	float foam_speed;
+	float foam_fade;
 };
 
 
@@ -664,6 +689,8 @@ public:
 	VolumetricCloudSettings volumetric_cloud_settings;
 	CloudLightingSettings cloud_lighting_settings;
 	WaterReflectionSettings water_reflection_settings;
+	WaterSurfaceSettings water_surface_settings;
+	OpenGLTextureRef water_coast_texture; // Local terrain bathymetry; not object/actor screen depth.
 
 	float bloom_strength; // [0-1].  Strength 0 turns off bloom.  0 by default.
 
@@ -890,6 +917,10 @@ struct MaterialCommonUniforms
 	Vec4f cloud_lighting_1; // (ground_albedo.r, ground_albedo.g, ground_albedo.b, phase_g)
 	Vec4f cloud_lighting_2; // (phase_blend, multi_scattering, underside_darkness, scattering_scale)
 	Vec4f water_reflection_settings; // (enabled, strength, samples, horizon_fade)
+	Vec4f water_surface_settings_0; // (amplitude, wavelength, steepness, speed)
+	Vec4f water_surface_settings_1; // (direction.x, direction.y, angular spread radians, secondary scale)
+	Vec4f water_surface_settings_2; // (surf enabled, surf strength, shoreline width, foam scale)
+	Vec4f water_surface_settings_3; // (foam speed, foam fade, padding, padding)
 	Vec4f mat_common_campos_ws;
 	float near_clip_dist;
 	float far_clip_dist;

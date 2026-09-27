@@ -253,11 +253,23 @@ vec2 cameraToScreenSpace(vec3 pos_cs)
 }
 
 
+// Avoid sampling the colour/depth buffers outside the visible image.  The
+// water surface is a large tiled mesh, so an out-of-range refraction ray can
+// otherwise wrap to the opposite side of the framebuffer and create a bright
+// triangular patch along the shoreline.
+bool isValidScreenUV(vec2 uv)
+{
+	const float edge = 0.002;
+	return uv.x >= edge && uv.x <= 1.0 - edge &&
+		uv.y >= edge && uv.y <= 1.0 - edge;
+}
+
+
 // Returns spectral radiance from refracted_hitpos_ws towards camera.
 vec3 colourForUnderwaterPoint(vec3 refracted_hitpos_ws, float refracted_px, float refracted_py, float final_refracted_water_ground_d, float water_to_ground_sun_d)
 {
 	//-----------------
-	vec3 extinction = vec3(1.0, 0.10, 0.1) * 2.0;
+	vec3 extinction = vec3(1.15, 0.55, 0.28); // Attenuate all channels, retain a cool blue transmission.
 	vec3 scattering = vec3(0.4, 0.4, 0.1);
 
 	vec3 src_col = texture(main_colour_texture, vec2(refracted_px, refracted_py)).xyz; // Get colour value at refracted ground position.
@@ -310,56 +322,48 @@ void main()
 	//	fresnel_scale * fresnellApprox(sunrefl_h_cos_theta, ior);
 
 
-	// waves
+	// Surface waves use a bounded Gerstner-style normal evaluation.  Unreal's
+	// water system exposes the same controls (wavelength, amplitude, steepness,
+	// wind direction and angular spread), while this fragment path keeps the
+	// cost fixed instead of iterating over the previous 200-wave approximation.
 	vec3 unit_normal_ws = normalize(normal_ws);
-
-	float deriv = length(dFdx(pos_ws));
-	float sin_window = 1.0 - smoothstep(0.0, 0.04, deriv);
-
-	float fbm_window = 1.0 - smoothstep(0.0, 0.2, deriv);
-
-	float k_len = 0.2;
-	//for(int i=0; i<1000; ++i)
-	for(int i=0; i<200; ++i)
-	{
-		// f(x) = a sin(k.(x,y) - omega*t)
-		// f(x) = a sin(k_x*x + k_y*y)
-		// df/dx = a k_x cos(k_x*x + k_y*y)
-		// df/dy = a k_y cos(k_x*x + k_y*y)
-
-		//float a = 0.05 * exp(-0.5 * float(i + 1.0));//0.05 / k_len; //(float(i + 1.0));
-		float a = 0.02  * pow(max(1.0, k_len), -1.5);
-		if(k_len > 50.0)
-			a *= 0.2;
-		if(k_len > 1000.0)
-			break;
-
-		//float omega = float(i) + 1.0;
-		vec2 k = vec2(
-			-0.5 + hash(uvec2(uint(i), 0)), 
-			-0.5 + hash(uvec2(uint(i), 1))
-		) * k_len;
-
-		float omega = sqrt(9.8 * length(k)); // Deep water dispersion relation. // 2.0 - float(i) * 0.01;
-		vec2 df_dxy = a * k * cos(dot(k, pos_ws.xy) - omega * time);
-
-		//df_dxy *= sin_window;
-		//float omega = float(i) + 1.0;
-		//unit_normal_ws.x += a * omega * cos(pos_ws.x * omega);
-		unit_normal_ws.x -= df_dxy.x;
-		unit_normal_ws.y -= df_dxy.y;
-
-		//k_len *= 2.0;
-		k_len += 0.3;
-	}
-
-	
-	//unit_normal_ws.y += (fbmMix(pos_ws.xy * 0.1 + vec2(0, -time * 0.1), fbm_tex) * 0.04 + sin(dot(pos_ws.xy, vec2(0.6, 0.3)) * 10.0 + time * 2.0) * 0.003 + sin(pos_ws.y * 20.0 + -time * 2.0) * 0.04) * sin_window;
-	//unit_normal_ws.x += sin(dot(pos_ws.xy, vec2(0.2, 0.3)) * 10.0 + time * 2.0) * 0.003 + sin(pos_ws.y * 10.0 + -time * 2.0) * 0.002;
-
-	//unit_normal_ws.x += (fbmMix(pos_ws.xy * 0.1, fbm_tex) * 0.01 + fbmMix(pos_ws.xy * 0.01, fbm_tex) * 0.01) * fbm_window;
-
-//	unit_normal_ws = normalize(unit_normal_ws);
+	float wave_crest_factor = 0.0;
+	vec2 dominant_wave_dir = normalize(water_surface_settings_1.xy);
+	float wave_spread = clamp(water_surface_settings_1.z, 0.0, 3.14159265);
+	float wave_amplitude = max(0.0, water_surface_settings_0.x);
+	float wave_length = max(0.5, water_surface_settings_0.y);
+	float wave_steepness = clamp(water_surface_settings_0.z, 0.0, 1.0);
+	float wave_speed = max(0.0, water_surface_settings_0.w);
+	float secondary_wave_scale = clamp(water_surface_settings_1.w, 0.0, 1.0);
+	// Primary/secondary phases and amplitudes match the vertex and CPU impact sampler.
+	float k1 = 6.28318530718 / max(4.0, wave_length);
+	float angle = clamp(wave_spread, 0.0, 1.4);
+	vec2 dir2 = vec2(dominant_wave_dir.x * cos(angle) - dominant_wave_dir.y * sin(angle),
+		dominant_wave_dir.x * sin(angle) + dominant_wave_dir.y * cos(angle));
+	float p1 = dot(pos_ws.xy, dominant_wave_dir) * k1 - sqrt(9.8 * k1) * wave_speed * time;
+	float k2 = k1 * 1.73;
+	float p2 = dot(pos_ws.xy, dir2) * k2 - sqrt(9.8 * k2) * wave_speed * 1.21 * time + 1.7;
+	float a1 = clamp(wave_amplitude, 0.0, 4.0) * 0.35;
+	unit_normal_ws.xy -= dominant_wave_dir * a1 * k1 * cos(p1) +
+		dir2 * a1 * 0.45 * secondary_wave_scale * k2 * cos(p2);
+	// In the near field the coastal bore replaces offshore sine waves. Use
+	// its actual geometric slope instead of reflecting a different wave train.
+	vec3 geometry_normal = normalize(cross(dFdx(pos_ws), dFdy(pos_ws)));
+	if(geometry_normal.z < 0.0) geometry_normal = -geometry_normal;
+	float near_weight = 1.0 - smoothstep(80.0,110.0,length(pos_ws.xy-mat_common_campos_ws.xy));
+	unit_normal_ws = mix(unit_normal_ws, geometry_normal, near_weight);
+	// Capillary detail follows the swash on the beach, including its return.
+	vec4 ripple_coast = waterCoastData(pos_ws.xy);
+	float ripple_phase = waterShorePhase(pos_ws.xy, ripple_coast, dominant_wave_dir, k1, sqrt(9.8*k1)*wave_speed, time);
+	vec2 swash_offset = ripple_coast.yz / max(0.008,length(ripple_coast.yz)) *
+		(a1 * waterSwash(ripple_phase) / max(0.04,length(ripple_coast.yz)));
+	vec2 ripple_uv = mix(pos_ws.xy-vec2(time*wave_speed*2.3/8.1,time*wave_speed*1.9/6.7),
+		pos_ws.xy-swash_offset, waterShoreWeight(ripple_coast,a1));
+	vec2 ripple_angles = ripple_uv * vec2(8.1,6.7);
+	vec2 ripple_aa = 1.0 - smoothstep(vec2(0.8),vec2(3.0),fwidth(ripple_angles));
+	unit_normal_ws.xy += vec2(sin(ripple_angles.x),cos(ripple_angles.y)) * ripple_aa * min(0.025, wave_amplitude * 0.04);
+	wave_crest_factor = smoothstep(0.65, 1.0, 0.5 + 0.5 * sin(p1));
+	unit_normal_ws = normalize(unit_normal_ws);
 	
 	if(dot(unit_normal_ws, cam_to_pos_ws) > 0.0)
 		unit_normal_ws = -unit_normal_ws;
@@ -374,6 +378,9 @@ void main()
 	vec3 spec_refl_light_already_fogged = vec3(0.0); // spectral radiance * 1.0e-9
 	vec3 spec_refl_light = vec3(0.0); // spectral radiance * 1.0e-9
 	float spec_refl_fresnel = 0.0;
+	float water_depth_for_surface = 1.0e6;
+	vec3 surf_ground_ws = pos_ws;
+	float surface_foam_factor = 0.0;
 	bool hit_point_under_water = false;
 	if(unit_cam_to_pos_ws.z > 0.0) // If the camera is under the water (TEMP: assuming water is flat horizontal plane)
 	{
@@ -591,14 +598,16 @@ void main()
 			int MAX_STEPS = 64;
 			float step_t = 0.004;
 			float prev_t = 0.0;
-			float t = -1.0;
-			for(int i=1; i<MAX_STEPS; ++i)
-			{
-				step_t += 0.00008;
-				t = float(i) * step_t; // TODO: use += instead of *
-				
-				vec2  cur_ss  = o_ss    + dir_ss  * t; // Compute current screen space position
-				float p_ss_xy = o_ss_xy + d_ss_xy * t;
+				float t = -1.0;
+				for(int i=1; i<MAX_STEPS; ++i)
+				{
+					step_t += 0.00008;
+					t = float(i) * step_t; // TODO: use += instead of *
+					
+					vec2  cur_ss  = o_ss    + dir_ss  * t; // Compute current screen space position
+					if(!isValidScreenUV(cur_ss))
+						break; // Never allow the reflection trace to wrap at a framebuffer edge.
+					float p_ss_xy = o_ss_xy + d_ss_xy * t;
 
 				if(p_ss_xy < 0.0 || p_ss_xy > 1.0)
 					break; // We walked off the screen
@@ -810,10 +819,29 @@ void main()
 			py = pos_cs.y * l_over_h + 0.5;
 			ground_dist = getDepthFromDepthTextureOrthographic(px, py); // Get depth from depth buffer.
 		}
-		
+		bool valid_screen_uv = isValidScreenUV(vec2(px, py));
 
 		float water_dist = -pos_cs.z;
-		float depth = max(0.0, ground_dist - water_dist);
+		float depth_epsilon = 0.002;
+		float depth_delta = ground_dist - water_dist;
+		// The water mesh is intentionally much larger than the actual lake.  If
+		// the opaque depth buffer says that the beach is in front of this water
+		// fragment, the fragment belongs to dry land and must not tint it.  Without
+		// this test the large water tile shows up as a translucent triangular wedge
+		// over the beach, separating the foam from the real shoreline.
+		if(valid_screen_uv && ground_dist < water_dist - depth_epsilon)
+			discard;
+		// A depth sample in front of the water surface is not the beach below
+		// it.  Treat it as invalid instead of converting it to zero depth: zero
+		// depth would make the foam mask cover an entire water triangle.
+		bool valid_ground_depth = valid_screen_uv && ground_dist >= water_dist - depth_epsilon && ground_dist < far_clip_dist;
+		float depth = valid_ground_depth ? min(depth_delta, 64.0) : 1.0e6;
+		water_depth_for_surface = depth;
+		// Reconstruct the opaque surface, independent of viewing angle.
+		vec3 depth_ray = camera_type == CameraType_Perspective ?
+			cam_to_pos_ws / max(water_dist, 0.001) :
+			transpose(mat3(frag_view_matrix)) * vec3(0.0, 0.0, -1.0);
+		surf_ground_ws = pos_ws + depth_ray * max(0.0, depth_delta);
 
 
 	
@@ -838,6 +866,13 @@ void main()
 			// get depth texture coords for the current step position
 			float cur_px = projected_cur_pos_cs.x / -projected_cur_pos_cs.z * l_over_w + 0.5;
 			float cur_py = projected_cur_pos_cs.y / -projected_cur_pos_cs.z * l_over_h + 0.5;
+			if(!isValidScreenUV(vec2(cur_px, cur_py)))
+			{
+				// Do not let a ray leaving the framebuffer wrap around and hit an
+				// unrelated beach pixel on the other side of the image.
+				hit_ground = false;
+				break;
+			}
 
 			float cur_depth = -projected_cur_pos_cs.z;
 
@@ -891,12 +926,13 @@ void main()
 		//vec3 unrefracted_ground_pos_ws = /*pos_ws + */unit_cam_to_pos_ws * ground_dist;
 	
 
-		float use_ground_cam_depth = getDepthFromDepthTexture(refracted_px, refracted_py);
+		bool valid_refracted_uv = isValidScreenUV(vec2(refracted_px, refracted_py));
+		float use_ground_cam_depth = valid_refracted_uv ? getDepthFromDepthTexture(refracted_px, refracted_py) : far_clip_dist;
 
 		//float final_refracted_water_ground_d = max(0.0, pos_ws.z - unrefracted_ground_pos_ws.z);
 	
 		// Distance from water surface to ground, along the refracted ray path.  Used for optical depth computation for water colour etc.
-		float final_refracted_water_ground_d = hit_ground ? max(0.0, use_ground_cam_depth - water_dist) : 1.0e10;
+		float final_refracted_water_ground_d = hit_ground ? length(refracted_hitpos_ws - pos_ws) : 1.0e10;
 
 		//float final_water_ground_d = use_depth * abs(unit_cam_to_pos_ws.z); 
 	
@@ -951,7 +987,18 @@ void main()
 		}
 
 
-		vec3 underwater_col = colourForUnderwaterPoint(refracted_hitpos_ws, refracted_px, refracted_py, final_refracted_water_ground_d, water_to_ground_sun_d);
+		vec3 underwater_col;
+		if(valid_screen_uv)
+		{
+			// If the refracted ray misses the screen, keep the original visible
+			// pixel instead of sampling a wrapped texture coordinate.
+			vec2 safe_refracted_uv = valid_refracted_uv ? vec2(refracted_px, refracted_py) : vec2(px, py);
+			underwater_col = colourForUnderwaterPoint(refracted_hitpos_ws, safe_refracted_uv.x, safe_refracted_uv.y, final_refracted_water_ground_d, water_to_ground_sun_d);
+		}
+		else
+		{
+			underwater_col = vec3(0.004, 0.015, 0.03);
+		}
 #else // else if !WATER_DO_SCREENSPACE_REFL_AND_REFR:
 		vec3 underwater_col = vec3(0.004, 0.015, 0.03);
 #endif
@@ -960,6 +1007,25 @@ void main()
 			spec_refl_light * spec_refl_fresnel;
 		
 	} // End if cam is above water surface
+
+	// Evaluate derivatives uniformly; suppress invalid sky/background samples afterwards.
+	// pos_ws.z is the rasterised mesh height, including secondary waves,
+	// lateral displacement and distance fade. Foam cannot lead/lag this edge.
+	vec4 terrain_coast = waterCoastData(pos_ws.xy);
+	vec3 foam_ground = vec3(pos_ws.xy, water_level_z + terrain_coast.x);
+	vec2 wash = coastalSurf(foam_ground, pos_ws.z, false);
+	// A submerged shin or rock face is NOT shallow seabed. Preserve its
+	// transmitted material colour; spray at impacts is handled by particles.
+	vec4 opaque_coast = waterCoastData(surf_ground_ws.xy);
+	float seabed_visibility = waterSeabedFoamVisibility(surf_ground_ws.z, water_level_z + opaque_coast.x);
+	if(unit_cam_to_pos_ws.z <= 0.0 && water_surface_settings_2.x > 0.5 && water_depth_for_surface < 1000.0)
+		surface_foam_factor = wash.x * terrain_coast.w * seabed_visibility;
+	if(surface_foam_factor > 0.0)
+	{
+		// Foam scatters incident light; it is not an emissive white contour.
+		vec3 foam_colour = vec3(0.82, 0.88, 0.89) * sun_and_sky_av_spec_rad.xyz;
+		col = mix(col, foam_colour, surface_foam_factor * 0.9);
+	}
 
 
 #if DEPTH_FOG
@@ -971,6 +1037,22 @@ void main()
 #endif
 
 	col += spec_refl_light_already_fogged                  * spec_refl_fresnel;
+
+#if WATER_DO_SCREENSPACE_REFL_AND_REFR
+	// Composite the last centimetres of the swash into the already-lit wet
+	// terrain. Fade ALL contributions, including foam and SSR, so neither
+	// reflection nor a solid white border survives at zero water thickness.
+	if(unit_cam_to_pos_ws.z <= 0.0 && terrain_coast.w > 0.5 && water_depth_for_surface < 1000.0)
+	{
+		float shore_depth = pos_ws.z - foam_ground.z;
+		float edge_noise = surfNoise(pos_ws.xy*3.1);
+		float coverage = waterShoreCoverage(shore_depth,length(terrain_coast.yz),water_surface_settings_2.z,edge_noise);
+		vec2 screen_uv = camera_type == CameraType_Perspective ? cameraToScreenSpace(pos_cs) :
+			pos_cs.xy * vec2(l_over_w,l_over_h) + 0.5;
+		if(isValidScreenUV(screen_uv))
+			col = mix(texture(main_colour_texture,screen_uv).rgb,col,mix(1.0,coverage,seabed_visibility));
+	}
+#endif
 
 
 

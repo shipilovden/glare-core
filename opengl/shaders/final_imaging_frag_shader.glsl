@@ -83,14 +83,14 @@ float mitchellNetravaliEval(float x)
 	const float B = 0.5f;
 	const float C = 0.25f;
 
-	const float region_0_a = (float(12)  - B*9  - C*6) * (1.f/6);
-	const float region_0_b = (float(-18) + B*12 + C*6) * (1.f/6);
-	const float region_0_d = (float(6)   - B*2       ) * (1.f/6);
+	const float region_0_a = (12.0  - B*9.0  - C*6.0) * (1.0/6.0);
+	const float region_0_b = (-18.0 + B*12.0 + C*6.0) * (1.0/6.0);
+	const float region_0_d = (6.0   - B*2.0         ) * (1.0/6.0);
 
-	const float region_1_a = (-B - C*6)                * (1.f/6);
-	const float region_1_b = (B*6 + C*30)              * (1.f/6);
-	const float region_1_c = (B*-12 - C*48)            * (1.f/6);
-	const float region_1_d = (B*8 + C*24)              * (1.f/6);
+	const float region_1_a = (-B - C*6.0)                  * (1.0/6.0);
+	const float region_1_b = (B*6.0 + C*30.0)              * (1.0/6.0);
+	const float region_1_c = (B*-12.0 - C*48.0)            * (1.0/6.0);
+	const float region_1_d = (B*8.0 + C*24.0)              * (1.0/6.0);
 
 	float x2 = x*x;
 	float x3 = x2*x;
@@ -147,8 +147,8 @@ vec4 sampleTexHighQual(in sampler2D tex, float u, float v)
 	int width  = src_res.x;
 	int height = src_res.y;
 
-	float f_pixels_x = normed_frac_part.x * width;
-	float f_pixels_y = normed_frac_part.y * height;
+	float f_pixels_x = normed_frac_part.x * float(width);
+	float f_pixels_y = normed_frac_part.y * float(height);
 
 	int i_pixels_clamped_x = int(floor(f_pixels_x - 0.5));
 	int i_pixels_clamped_y = int(floor(f_pixels_y - 0.5));
@@ -166,42 +166,45 @@ vec4 sampleTexHighQual(in sampler2D tex, float u, float v)
 	int vt_minus_1 = max(i_pixels_clamped_y - 1, 0);
 
 
-	const vec4  v0 = texelFetch(tex, ivec2(ut_minus_1, vt_minus_1), /*lod=*/0);
-	const vec4  v1 = texelFetch(tex, ivec2(ut,         vt_minus_1), /*lod=*/0);
-	const vec4  v2 = texelFetch(tex, ivec2(ut_1,       vt_minus_1), /*lod=*/0);
-	const vec4  v3 = texelFetch(tex, ivec2(ut_2,       vt_minus_1), /*lod=*/0);
-	const vec4  v4 = texelFetch(tex, ivec2(ut_minus_1, vt        ), /*lod=*/0);
-	const vec4  v5 = texelFetch(tex, ivec2(ut,         vt        ), /*lod=*/0);
-	const vec4  v6 = texelFetch(tex, ivec2(ut_1,       vt        ), /*lod=*/0);
-	const vec4  v7 = texelFetch(tex, ivec2(ut_2,       vt        ), /*lod=*/0);
-	const vec4  v8 = texelFetch(tex, ivec2(ut_minus_1, vt_1      ), /*lod=*/0);
-	const vec4  v9 = texelFetch(tex, ivec2(ut,         vt_1      ), /*lod=*/0);
-	const vec4 v10 = texelFetch(tex, ivec2(ut_1,       vt_1      ), /*lod=*/0);
-	const vec4 v11 = texelFetch(tex, ivec2(ut_2,       vt_1      ), /*lod=*/0);
-	const vec4 v12 = texelFetch(tex, ivec2(ut_minus_1, vt_2      ), /*lod=*/0);
-	const vec4 v13 = texelFetch(tex, ivec2(ut,         vt_2      ), /*lod=*/0);
-	const vec4 v14 = texelFetch(tex, ivec2(ut_1,       vt_2      ), /*lod=*/0);
-	const vec4 v15 = texelFetch(tex, ivec2(ut_2,       vt_2      ), /*lod=*/0);
+	// GLSL ES/WebGL only permits constant expressions in a `const` initializer.
+	// texelFetch results are runtime values, so these locals must remain mutable
+	// declarations even though the shader does not subsequently modify them.
+	vec4  v0 = texelFetch(tex, ivec2(ut_minus_1, vt_minus_1), /*lod=*/0);
+	vec4  v1 = texelFetch(tex, ivec2(ut,         vt_minus_1), /*lod=*/0);
+	vec4  v2 = texelFetch(tex, ivec2(ut_1,       vt_minus_1), /*lod=*/0);
+	vec4  v3 = texelFetch(tex, ivec2(ut_2,       vt_minus_1), /*lod=*/0);
+	vec4  v4 = texelFetch(tex, ivec2(ut_minus_1, vt        ), /*lod=*/0);
+	vec4  v5 = texelFetch(tex, ivec2(ut,         vt        ), /*lod=*/0);
+	vec4  v6 = texelFetch(tex, ivec2(ut_1,       vt        ), /*lod=*/0);
+	vec4  v7 = texelFetch(tex, ivec2(ut_2,       vt        ), /*lod=*/0);
+	vec4  v8 = texelFetch(tex, ivec2(ut_minus_1, vt_1      ), /*lod=*/0);
+	vec4  v9 = texelFetch(tex, ivec2(ut,         vt_1      ), /*lod=*/0);
+	vec4 v10 = texelFetch(tex, ivec2(ut_1,       vt_1      ), /*lod=*/0);
+	vec4 v11 = texelFetch(tex, ivec2(ut_2,       vt_1      ), /*lod=*/0);
+	vec4 v12 = texelFetch(tex, ivec2(ut_minus_1, vt_2      ), /*lod=*/0);
+	vec4 v13 = texelFetch(tex, ivec2(ut,         vt_2      ), /*lod=*/0);
+	vec4 v14 = texelFetch(tex, ivec2(ut_1,       vt_2      ), /*lod=*/0);
+	vec4 v15 = texelFetch(tex, ivec2(ut_2,       vt_2      ), /*lod=*/0);
 
 	float left_pixel_x = floor(f_pixels_x - 0.5) + 0.5;
 	float bot_pixel_y  = floor(f_pixels_y - 0.5) + 0.5;
 
-	const float w0  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1)) + square(f_pixels_y - (bot_pixel_y - 1))));
-	const float w1  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0)) + square(f_pixels_y - (bot_pixel_y - 1))));
-	const float w2  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1)) + square(f_pixels_y - (bot_pixel_y - 1))));
-	const float w3  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2)) + square(f_pixels_y - (bot_pixel_y - 1))));
-	const float w4  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1)) + square(f_pixels_y - (bot_pixel_y + 0))));
-	const float w5  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0)) + square(f_pixels_y - (bot_pixel_y + 0))));
-	const float w6  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1)) + square(f_pixels_y - (bot_pixel_y + 0))));
-	const float w7  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2)) + square(f_pixels_y - (bot_pixel_y + 0))));
-	const float w8  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1)) + square(f_pixels_y - (bot_pixel_y + 1))));
-	const float w9  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0)) + square(f_pixels_y - (bot_pixel_y + 1))));
-	const float w10 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1)) + square(f_pixels_y - (bot_pixel_y + 1))));
-	const float w11 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2)) + square(f_pixels_y - (bot_pixel_y + 1))));
-	const float w12 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1)) + square(f_pixels_y - (bot_pixel_y + 2))));
-	const float w13 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0)) + square(f_pixels_y - (bot_pixel_y + 2))));
-	const float w14 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1)) + square(f_pixels_y - (bot_pixel_y + 2))));
-	const float w15 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2)) + square(f_pixels_y - (bot_pixel_y + 2))));
+	float w0  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1.0)) + square(f_pixels_y - (bot_pixel_y - 1.0))));
+	float w1  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0.0)) + square(f_pixels_y - (bot_pixel_y - 1.0))));
+	float w2  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1.0)) + square(f_pixels_y - (bot_pixel_y - 1.0))));
+	float w3  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2.0)) + square(f_pixels_y - (bot_pixel_y - 1.0))));
+	float w4  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1.0)) + square(f_pixels_y - (bot_pixel_y + 0.0))));
+	float w5  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0.0)) + square(f_pixels_y - (bot_pixel_y + 0.0))));
+	float w6  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1.0)) + square(f_pixels_y - (bot_pixel_y + 0.0))));
+	float w7  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2.0)) + square(f_pixels_y - (bot_pixel_y + 0.0))));
+	float w8  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1.0)) + square(f_pixels_y - (bot_pixel_y + 1.0))));
+	float w9  = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0.0)) + square(f_pixels_y - (bot_pixel_y + 1.0))));
+	float w10 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1.0)) + square(f_pixels_y - (bot_pixel_y + 1.0))));
+	float w11 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2.0)) + square(f_pixels_y - (bot_pixel_y + 1.0))));
+	float w12 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 1.0)) + square(f_pixels_y - (bot_pixel_y + 2.0))));
+	float w13 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x - 0.0)) + square(f_pixels_y - (bot_pixel_y + 2.0))));
+	float w14 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 1.0)) + square(f_pixels_y - (bot_pixel_y + 2.0))));
+	float w15 = mitchellNetravaliEval(sqrt(square(f_pixels_x - (left_pixel_x + 2.0)) + square(f_pixels_y - (bot_pixel_y + 2.0))));
 
 	float filter_sum = 
 		w0 	+
@@ -224,7 +227,7 @@ vec4 sampleTexHighQual(in sampler2D tex, float u, float v)
 		w14	+
 		w15;
 
-	const vec4 sum = 
+	vec4 sum =
 		(((v0  * w0 +
 		   v1  * w1) +
 		  (v2  * w2 +
