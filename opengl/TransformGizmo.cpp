@@ -22,8 +22,8 @@ static const int   GRABBED_SCALE_PLANE_BASE  = 7;  // grabbed_axis 7/8/9    = tw
 static const int   GRABBED_AXIS_SCALE_BASE   = 10; // grabbed_axis 10/11/12 = per-axis scale (axis cube tip) 0/1/2
 static const int   GRABBED_TRANSLATE_PLANE_BASE = 13; // grabbed_axis 13/14/15 = two-axis translate plane 0/1/2
 
-static const Colour3f axis_arrows_default_cols[]   = { Colour3f(0.6f,0.2f,0.2f), Colour3f(0.2f,0.6f,0.2f), Colour3f(0.2f,0.2f,0.6f) };
-static const Colour3f axis_arrows_mouseover_cols[] = { Colour3f(1,0.45f,0.3f),   Colour3f(0.3f,1,0.3f),    Colour3f(0.3f,0.45f,1) };
+static const Colour3f axis_arrows_default_cols[]   = { Colour3f(0.9f,0.18f,0.15f), Colour3f(0.15f,0.9f,0.18f), Colour3f(0.15f,0.25f,0.95f) };
+static const Colour3f axis_arrows_mouseover_cols[] = { Colour3f(1,0.55f,0.4f),      Colour3f(0.4f,1,0.4f),      Colour3f(0.4f,0.55f,1) };
 
 // For each direction x, y, z, the two other basis vectors.
 static const Vec4f basis_vectors[6] = { Vec4f(0,1,0,0), Vec4f(0,0,1,0), Vec4f(0,0,1,0), Vec4f(1,0,0,0), Vec4f(1,0,0,0), Vec4f(0,1,0,0) };
@@ -82,7 +82,9 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 	auto configure_gizmo_material = [](OpenGLMaterial& material, const Colour3f& colour)
 	{
 		material.albedo_linear_rgb = toLinearSRGB(colour);
-		material.alpha = 0.55f;
+		material.emission_linear_rgb = toLinearSRGB(colour);
+		material.emission_scale = 0.65f;
+		material.alpha = 0.78f;
 		material.alpha_blend = true;
 		material.simple_double_sided = true;
 	};
@@ -98,7 +100,7 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 			axis_arrow_objects[i]->mesh_data = engine->getCylinderMesh();
 			axis_arrow_objects[i]->materials.resize(1);
 			configure_gizmo_material(axis_arrow_objects[i]->materials[0], axis_arrows_default_cols[i]);
-			axis_arrow_objects[i]->always_visible = false;
+			axis_arrow_objects[i]->always_visible = true;
 			engine->addObject(axis_arrow_objects[i]);
 
 			// Cube tip (scale handle) — separate object for independent hover/scale
@@ -107,7 +109,7 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 			axis_scale_cube_objects[i]->mesh_data = cube_meshdata;
 			axis_scale_cube_objects[i]->materials.resize(1);
 			configure_gizmo_material(axis_scale_cube_objects[i]->materials[0], axis_arrows_default_cols[i]);
-			axis_scale_cube_objects[i]->always_visible = false;
+			axis_scale_cube_objects[i]->always_visible = true;
 			engine->addObject(axis_scale_cube_objects[i]);
 		}
 	}
@@ -121,7 +123,7 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 		ob->mesh_data = MeshPrimitiveBuilding::makeRotationArcHandleMeshData(*engine->vert_buf_allocator, arc_handle_half_angle * 2);
 		ob->materials.resize(1);
 		configure_gizmo_material(ob->materials[0], axis_arrows_default_cols[i]);
-		ob->always_visible = false;
+		ob->always_visible = true;
 		rot_handle_arc_objects[i] = ob;
 		engine->addObject(rot_handle_arc_objects[i]);
 	}
@@ -134,7 +136,7 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 		center_scale_cube_object->mesh_data = cube_meshdata2;
 		center_scale_cube_object->materials.resize(1);
 		configure_gizmo_material(center_scale_cube_object->materials[0], Colour3f(0.55f, 0.55f, 0.55f));
-		center_scale_cube_object->always_visible = false;
+		center_scale_cube_object->always_visible = true;
 		center_scale_cube_object->ob_to_world_matrix = Matrix4f::identity();
 		engine->addObject(center_scale_cube_object);
 	}
@@ -147,7 +149,7 @@ TransformGizmo::TransformGizmo(OpenGLEngine* engine_, const Vec4f& gizmo_centre)
 		translate_plane_objects[i]->mesh_data = quad_meshdata;
 		translate_plane_objects[i]->materials.resize(1);
 		configure_gizmo_material(translate_plane_objects[i]->materials[0], axis_arrows_default_cols[i]);
-		translate_plane_objects[i]->always_visible = false;
+		translate_plane_objects[i]->always_visible = true;
 		translate_plane_objects[i]->ob_to_world_matrix = Matrix4f::identity();
 		engine->addObject(translate_plane_objects[i]);
 	}
@@ -1183,27 +1185,29 @@ int TransformGizmo::mouseOverCubeHandle(const Vec2f& px) const
 
 void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 {
+	auto set_gizmo_colour = [this](GLObjectRef& object, const Colour3f& colour)
+	{
+		object->materials[0].albedo_linear_rgb = toLinearSRGB(colour);
+		object->materials[0].emission_linear_rgb = toLinearSRGB(colour);
+		engine->objectMaterialsUpdated(*object);
+	};
+
 	// Reset all to default colours.
 	for(int i=0; i<NUM_AXIS_ARROWS; ++i)
 	{
-		axis_arrow_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i % 3]);
-		engine->objectMaterialsUpdated(*axis_arrow_objects[i]);
-		axis_scale_cube_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i % 3]);
-		engine->objectMaterialsUpdated(*axis_scale_cube_objects[i]);
+		set_gizmo_colour(axis_arrow_objects[i], axis_arrows_default_cols[i % 3]);
+		set_gizmo_colour(axis_scale_cube_objects[i], axis_arrows_default_cols[i % 3]);
 	}
 	for(int i=0; i<3; ++i)
 	{
-		rot_handle_arc_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i]);
-		engine->objectMaterialsUpdated(*rot_handle_arc_objects[i]);
+		set_gizmo_colour(rot_handle_arc_objects[i], axis_arrows_default_cols[i]);
 	}
 
 	// Reset center scale cube to default grey and translate planes to default colours.
-	center_scale_cube_object->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.55f, 0.55f, 0.55f));
-	engine->objectMaterialsUpdated(*center_scale_cube_object);
+	set_gizmo_colour(center_scale_cube_object, Colour3f(0.7f, 0.7f, 0.7f));
 	for(int i = 0; i < NUM_PLANES; ++i)
 	{
-		translate_plane_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i]);
-		engine->objectMaterialsUpdated(*translate_plane_objects[i]);
+		set_gizmo_colour(translate_plane_objects[i], axis_arrows_default_cols[i]);
 	}
 
 	// Priority: virtual-center-zone > cube tips > outer planes > scale planes (only if center was engaged) > shafts/arcs.
@@ -1216,8 +1220,7 @@ void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 		// Central zone: engage and show white cube.
 		center_scale_engaged = true;
 		hovered_axis = -1;
-		center_scale_cube_object->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(1.f, 1.f, 1.f));
-		engine->objectMaterialsUpdated(*center_scale_cube_object);
+		set_gizmo_colour(center_scale_cube_object, Colour3f(1.f, 1.f, 1.f));
 		return;
 	}
 
@@ -1225,8 +1228,7 @@ void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 	{
 		center_scale_engaged = false;
 		hovered_axis = -1;
-		axis_scale_cube_objects[hovered_cube]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[hovered_cube]);
-		engine->objectMaterialsUpdated(*axis_scale_cube_objects[hovered_cube]);
+		set_gizmo_colour(axis_scale_cube_objects[hovered_cube], axis_arrows_mouseover_cols[hovered_cube]);
 		return;
 	}
 
@@ -1235,8 +1237,7 @@ void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 	{
 		center_scale_engaged = false;
 		hovered_axis = -1;
-		translate_plane_objects[hovered_translate_plane]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[hovered_translate_plane]);
-		engine->objectMaterialsUpdated(*translate_plane_objects[hovered_translate_plane]);
+		set_gizmo_colour(translate_plane_objects[hovered_translate_plane], axis_arrows_mouseover_cols[hovered_translate_plane]);
 		return;
 	}
 
@@ -1245,8 +1246,7 @@ void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 	if(hovered_scale_plane >= 0 && center_scale_engaged)
 	{
 		hovered_axis = -1;
-		center_scale_cube_object->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[hovered_scale_plane]);
-		engine->objectMaterialsUpdated(*center_scale_cube_object);
+		set_gizmo_colour(center_scale_cube_object, axis_arrows_mouseover_cols[hovered_scale_plane]);
 		return;
 	}
 
@@ -1264,13 +1264,11 @@ void TransformGizmo::updateMouseoverHighlight(const Vec2f& px)
 
 	if(axis < NUM_AXIS_ARROWS)
 	{
-		axis_arrow_objects[axis]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[axis]);
-		engine->objectMaterialsUpdated(*axis_arrow_objects[axis]);
+		set_gizmo_colour(axis_arrow_objects[axis], axis_arrows_mouseover_cols[axis]);
 	}
 	else
 	{
 		const int rot_axis = axis - NUM_AXIS_ARROWS;
-		rot_handle_arc_objects[rot_axis]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[rot_axis]);
-		engine->objectMaterialsUpdated(*rot_handle_arc_objects[rot_axis]);
+		set_gizmo_colour(rot_handle_arc_objects[rot_axis], axis_arrows_mouseover_cols[rot_axis]);
 	}
 }
